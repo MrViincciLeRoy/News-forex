@@ -389,7 +389,7 @@ if __name__ == "__main__":
     print("\n⚠ NOTE: This will take 15-30 minutes due to API rate limiting")
     print("=" * 70)
     
-    choice = input("\nFetch news articles? (y/n): ").strip().lower()
+    choice = "y" #input("\nFetch news articles? (y/n): ").strip().lower()
     
     if choice == 'y':
         print("\n🚀 Starting... This will take a while, please be patient!\n")
