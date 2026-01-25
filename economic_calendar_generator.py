@@ -3,141 +3,236 @@ import requests
 from datetime import datetime, timedelta
 import time
 import json
-import yfinance as yf
-import numpy as np
 
-def calculate_indicators(ticker='SPY', date=None, period_before=100):
+def get_technical_indicators_api(ticker='SPY', date=None):
     """
-    Calculate 10+ technical indicators for a given date
-    Returns buy/sell/neutral signals
+    Fetch technical indicators from Alpha Vantage API
+    You'll need a free API key from https://www.alphavantage.co/support/#api-key
     """
+    API_KEY = 'OW8A4KQB2V0DQJV3'  # Replace with your API key
+    
     try:
-        end_date = datetime.strptime(date, '%Y-%m-%d')
-        start_date = end_date - timedelta(days=period_before)
-        
-        df = yf.download(ticker, start=start_date.strftime('%Y-%m-%d'), 
-                        end=(end_date + timedelta(days=1)).strftime('%Y-%m-%d'), 
-                        progress=False)
-        
-        if len(df) < 50:
-            return None
-        
-        # Get scalar values at the end - FIXED
-        price = df['Close'].iloc[-1].item()
-        current_volume = df['Volume'].iloc[-1].item()
+        indicators = {}
+        base_url = 'https://www.alphavantage.co/query'
         
         # RSI
-        delta = df['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-        rsi_val = rsi.iloc[-1].item()
-        rsi_signal = 'BUY' if rsi_val < 30 else ('SELL' if rsi_val > 70 else 'NEUTRAL')
+        rsi_params = {
+            'function': 'RSI',
+            'symbol': ticker,
+            'interval': 'daily',
+            'time_period': 14,
+            'series_type': 'close',
+            'apikey': API_KEY
+        }
+        rsi_response = requests.get(base_url, params=rsi_params, timeout=10)
+        if rsi_response.status_code == 200:
+            rsi_data = rsi_response.json()
+            if 'Technical Analysis: RSI' in rsi_data:
+                latest_date = list(rsi_data['Technical Analysis: RSI'].keys())[0]
+                rsi_val = float(rsi_data['Technical Analysis: RSI'][latest_date]['RSI'])
+                rsi_signal = 'BUY' if rsi_val < 30 else ('SELL' if rsi_val > 70 else 'NEUTRAL')
+                indicators['RSI'] = {
+                    'value': round(rsi_val, 2),
+                    'signal': rsi_signal,
+                    'description': f'RSI at {round(rsi_val, 2)}'
+                }
+        time.sleep(12)  # Alpha Vantage free tier: 5 calls/minute
         
         # MACD
-        exp1 = df['Close'].ewm(span=12, adjust=False).mean()
-        exp2 = df['Close'].ewm(span=26, adjust=False).mean()
-        macd = exp1 - exp2
-        signal = macd.ewm(span=9, adjust=False).mean()
-        macd_val = macd.iloc[-1].item()
-        signal_val = signal.iloc[-1].item()
-        macd_signal = 'BUY' if macd_val > signal_val else 'SELL'
-        
-        # Moving Averages
-        sma_20 = df['Close'].rolling(window=20).mean().iloc[-1].item()
-        sma_50 = df['Close'].rolling(window=50).mean().iloc[-1].item()
-        ma_signal = 'BUY' if (price > sma_20 and sma_20 > sma_50) else ('SELL' if (price < sma_20 and sma_20 < sma_50) else 'NEUTRAL')
-        
-        # Bollinger Bands
-        bb_middle = df['Close'].rolling(window=20).mean()
-        bb_std = df['Close'].rolling(window=20).std()
-        bb_upper = bb_middle + (bb_std * 2)
-        bb_lower = bb_middle - (bb_std * 2)
-        bb_upper_val = bb_upper.iloc[-1].item()
-        bb_lower_val = bb_lower.iloc[-1].item()
-        bb_signal = 'SELL' if price > bb_upper_val else ('BUY' if price < bb_lower_val else 'NEUTRAL')
+        macd_params = {
+            'function': 'MACD',
+            'symbol': ticker,
+            'interval': 'daily',
+            'series_type': 'close',
+            'apikey': API_KEY
+        }
+        macd_response = requests.get(base_url, params=macd_params, timeout=10)
+        if macd_response.status_code == 200:
+            macd_data = macd_response.json()
+            if 'Technical Analysis: MACD' in macd_data:
+                latest_date = list(macd_data['Technical Analysis: MACD'].keys())[0]
+                macd_val = float(macd_data['Technical Analysis: MACD'][latest_date]['MACD'])
+                signal_val = float(macd_data['Technical Analysis: MACD'][latest_date]['MACD_Signal'])
+                macd_signal = 'BUY' if macd_val > signal_val else 'SELL'
+                indicators['MACD'] = {
+                    'value': round(macd_val, 4),
+                    'signal': macd_signal,
+                    'description': f'MACD {round(macd_val, 4)} vs Signal {round(signal_val, 4)}'
+                }
+        time.sleep(12)
         
         # Stochastic
-        low_14 = df['Low'].rolling(window=14).min()
-        high_14 = df['High'].rolling(window=14).max()
-        k_percent = 100 * ((df['Close'] - low_14) / (high_14 - low_14))
-        k_val = k_percent.iloc[-1].item()
-        stoch_signal = 'BUY' if k_val < 20 else ('SELL' if k_val > 80 else 'NEUTRAL')
+        stoch_params = {
+            'function': 'STOCH',
+            'symbol': ticker,
+            'interval': 'daily',
+            'apikey': API_KEY
+        }
+        stoch_response = requests.get(base_url, params=stoch_params, timeout=10)
+        if stoch_response.status_code == 200:
+            stoch_data = stoch_response.json()
+            if 'Technical Analysis: STOCH' in stoch_data:
+                latest_date = list(stoch_data['Technical Analysis: STOCH'].keys())[0]
+                k_val = float(stoch_data['Technical Analysis: STOCH'][latest_date]['SlowK'])
+                stoch_signal = 'BUY' if k_val < 20 else ('SELL' if k_val > 80 else 'NEUTRAL')
+                indicators['Stochastic'] = {
+                    'value': round(k_val, 2),
+                    'signal': stoch_signal,
+                    'description': f'Stochastic at {round(k_val, 2)}%'
+                }
+        time.sleep(12)
         
-        # ADX (trend strength) - simplified ATR calculation
-        high_low = df['High'] - df['Low']
-        high_close = (df['High'] - df['Close'].shift()).abs()
-        low_close = (df['Low'] - df['Close'].shift()).abs()
+        # ADX
+        adx_params = {
+            'function': 'ADX',
+            'symbol': ticker,
+            'interval': 'daily',
+            'time_period': 14,
+            'apikey': API_KEY
+        }
+        adx_response = requests.get(base_url, params=adx_params, timeout=10)
+        if adx_response.status_code == 200:
+            adx_data = adx_response.json()
+            if 'Technical Analysis: ADX' in adx_data:
+                latest_date = list(adx_data['Technical Analysis: ADX'].keys())[0]
+                adx_val = float(adx_data['Technical Analysis: ADX'][latest_date]['ADX'])
+                adx_signal = 'STRONG TREND' if adx_val > 25 else 'WEAK TREND'
+                indicators['ADX'] = {
+                    'value': round(adx_val, 2),
+                    'signal': adx_signal,
+                    'description': f'Trend strength {round(adx_val, 2)}'
+                }
+        time.sleep(12)
         
-        tr = pd.DataFrame({
-            'hl': high_low,
-            'hc': high_close,
-            'lc': low_close
-        }).max(axis=1)
+        # CCI
+        cci_params = {
+            'function': 'CCI',
+            'symbol': ticker,
+            'interval': 'daily',
+            'time_period': 20,
+            'apikey': API_KEY
+        }
+        cci_response = requests.get(base_url, params=cci_params, timeout=10)
+        if cci_response.status_code == 200:
+            cci_data = cci_response.json()
+            if 'Technical Analysis: CCI' in cci_data:
+                latest_date = list(cci_data['Technical Analysis: CCI'].keys())[0]
+                cci_val = float(cci_data['Technical Analysis: CCI'][latest_date]['CCI'])
+                cci_signal = 'BUY' if cci_val < -100 else ('SELL' if cci_val > 100 else 'NEUTRAL')
+                indicators['CCI'] = {
+                    'value': round(cci_val, 2),
+                    'signal': cci_signal,
+                    'description': f'CCI at {round(cci_val, 2)}'
+                }
+        time.sleep(12)
         
-        atr = tr.rolling(14).mean()
-        adx_val = atr.iloc[-1].item() if not pd.isna(atr.iloc[-1]) else 0
-        adx_signal = 'STRONG TREND' if adx_val > 25 else 'WEAK TREND'
+        # Bollinger Bands
+        bbands_params = {
+            'function': 'BBANDS',
+            'symbol': ticker,
+            'interval': 'daily',
+            'time_period': 20,
+            'series_type': 'close',
+            'apikey': API_KEY
+        }
+        bbands_response = requests.get(base_url, params=bbands_params, timeout=10)
+        if bbands_response.status_code == 200:
+            bbands_data = bbands_response.json()
+            if 'Technical Analysis: BBANDS' in bbands_data:
+                latest_date = list(bbands_data['Technical Analysis: BBANDS'].keys())[0]
+                upper = float(bbands_data['Technical Analysis: BBANDS'][latest_date]['Real Upper Band'])
+                lower = float(bbands_data['Technical Analysis: BBANDS'][latest_date]['Real Lower Band'])
+                middle = float(bbands_data['Technical Analysis: BBANDS'][latest_date]['Real Middle Band'])
+                
+                # Get current price
+                quote_params = {
+                    'function': 'GLOBAL_QUOTE',
+                    'symbol': ticker,
+                    'apikey': API_KEY
+                }
+                quote_response = requests.get(base_url, params=quote_params, timeout=10)
+                price = 0
+                if quote_response.status_code == 200:
+                    quote_data = quote_response.json()
+                    if 'Global Quote' in quote_data and '05. price' in quote_data['Global Quote']:
+                        price = float(quote_data['Global Quote']['05. price'])
+                
+                bb_signal = 'SELL' if price > upper else ('BUY' if price < lower else 'NEUTRAL')
+                indicators['Bollinger'] = {
+                    'value': f'{round(lower, 2)}-{round(upper, 2)}',
+                    'signal': bb_signal,
+                    'description': f'Price at {round(price, 2)}'
+                }
+                indicators['price'] = round(price, 2)
+        time.sleep(12)
         
-        # Volume
-        avg_volume = df['Volume'].rolling(window=20).mean().iloc[-1].item()
-        volume_signal = 'HIGH' if current_volume > avg_volume * 1.5 else ('LOW' if current_volume < avg_volume * 0.5 else 'NORMAL')
+        # SMA
+        sma20_params = {
+            'function': 'SMA',
+            'symbol': ticker,
+            'interval': 'daily',
+            'time_period': 20,
+            'series_type': 'close',
+            'apikey': API_KEY
+        }
+        sma20_response = requests.get(base_url, params=sma20_params, timeout=10)
+        sma_20 = 0
+        if sma20_response.status_code == 200:
+            sma20_data = sma20_response.json()
+            if 'Technical Analysis: SMA' in sma20_data:
+                latest_date = list(sma20_data['Technical Analysis: SMA'].keys())[0]
+                sma_20 = float(sma20_data['Technical Analysis: SMA'][latest_date]['SMA'])
+        time.sleep(12)
         
-        # OBV (On Balance Volume)
-        obv = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
-        obv_ma = obv.rolling(window=20).mean()
-        obv_val = obv.iloc[-1].item()
-        obv_ma_val = obv_ma.iloc[-1].item()
-        obv_signal = 'BUY' if obv_val > obv_ma_val else 'SELL'
+        sma50_params = {
+            'function': 'SMA',
+            'symbol': ticker,
+            'interval': 'daily',
+            'time_period': 50,
+            'series_type': 'close',
+            'apikey': API_KEY
+        }
+        sma50_response = requests.get(base_url, params=sma50_params, timeout=10)
+        sma_50 = 0
+        if sma50_response.status_code == 200:
+            sma50_data = sma50_response.json()
+            if 'Technical Analysis: SMA' in sma50_data:
+                latest_date = list(sma50_data['Technical Analysis: SMA'].keys())[0]
+                sma_50 = float(sma50_data['Technical Analysis: SMA'][latest_date]['SMA'])
         
-        # ATR (volatility)
-        atr_percent = (adx_val / price) * 100 if price > 0 else 0
-        atr_signal = 'HIGH VOLATILITY' if atr_percent > 2 else 'LOW VOLATILITY'
+        price = indicators.get('price', 0)
+        ma_signal = 'BUY' if (price > sma_20 and sma_20 > sma_50) else ('SELL' if (price < sma_20 and sma_20 < sma_50) else 'NEUTRAL')
+        indicators['MA_Cross'] = {
+            'value': f'{round(sma_20, 2)}/{round(sma_50, 2)}',
+            'signal': ma_signal,
+            'description': f'Price {round(price, 2)} vs SMA20 {round(sma_20, 2)}'
+        }
+        time.sleep(12)
         
         # Williams %R
-        high_14_val = high_14.iloc[-1].item()
-        low_14_val = low_14.iloc[-1].item()
-        
-        if high_14_val != low_14_val:
-            williams_r = -100 * ((high_14_val - price) / (high_14_val - low_14_val))
-        else:
-            williams_r = -50
-            
-        williams_signal = 'BUY' if williams_r < -80 else ('SELL' if williams_r > -20 else 'NEUTRAL')
-        
-        # CCI (Commodity Channel Index)
-        tp = (df['High'] + df['Low'] + df['Close']) / 3
-        sma_tp = tp.rolling(window=20).mean()
-        mad = tp.rolling(window=20).apply(lambda x: np.abs(x - x.mean()).mean())
-        cci = (tp - sma_tp) / (0.015 * mad)
-        cci_val = cci.iloc[-1].item()
-        cci_signal = 'BUY' if cci_val < -100 else ('SELL' if cci_val > 100 else 'NEUTRAL')
-        
-        # ROC (Rate of Change)
-        if len(df) >= 10:
-            roc = ((price - df['Close'].iloc[-10].item()) / df['Close'].iloc[-10].item()) * 100
-        else:
-            roc = 0
-        roc_signal = 'BUY' if roc > 5 else ('SELL' if roc < -5 else 'NEUTRAL')
-        
-        indicators = {
-            'RSI': {'value': round(rsi_val, 2), 'signal': rsi_signal, 'description': f'RSI at {round(rsi_val, 2)}'},
-            'MACD': {'value': round(macd_val, 4), 'signal': macd_signal, 'description': f'MACD {round(macd_val, 4)} vs Signal {round(signal_val, 4)}'},
-            'MA_Cross': {'value': f'{round(sma_20, 2)}/{round(sma_50, 2)}', 'signal': ma_signal, 'description': f'Price {round(price, 2)} vs SMA20 {round(sma_20, 2)}'},
-            'Bollinger': {'value': f'{round(bb_lower_val, 2)}-{round(bb_upper_val, 2)}', 'signal': bb_signal, 'description': f'Price at {round(price, 2)}'},
-            'Stochastic': {'value': round(k_val, 2), 'signal': stoch_signal, 'description': f'Stochastic at {round(k_val, 2)}%'},
-            'ADX': {'value': round(adx_val, 2), 'signal': adx_signal, 'description': f'Trend strength {round(adx_val, 2)}'},
-            'Volume': {'value': int(current_volume), 'signal': volume_signal, 'description': f'Vol {int(current_volume):,} vs Avg {int(avg_volume):,}'},
-            'OBV': {'value': int(obv_val), 'signal': obv_signal, 'description': 'Volume trend indicator'},
-            'ATR': {'value': round(atr_percent, 2), 'signal': atr_signal, 'description': f'Volatility {round(atr_percent, 2)}%'},
-            'Williams_R': {'value': round(williams_r, 2), 'signal': williams_signal, 'description': f'Williams %R at {round(williams_r, 2)}'},
-            'CCI': {'value': round(cci_val, 2), 'signal': cci_signal, 'description': f'CCI at {round(cci_val, 2)}'},
-            'ROC': {'value': round(roc, 2), 'signal': roc_signal, 'description': f'Rate of change {round(roc, 2)}%'}
+        willr_params = {
+            'function': 'WILLR',
+            'symbol': ticker,
+            'interval': 'daily',
+            'time_period': 14,
+            'apikey': API_KEY
         }
+        willr_response = requests.get(base_url, params=willr_params, timeout=10)
+        if willr_response.status_code == 200:
+            willr_data = willr_response.json()
+            if 'Technical Analysis: WILLR' in willr_data:
+                latest_date = list(willr_data['Technical Analysis: WILLR'].keys())[0]
+                willr_val = float(willr_data['Technical Analysis: WILLR'][latest_date]['WILLR'])
+                williams_signal = 'BUY' if willr_val < -80 else ('SELL' if willr_val > -20 else 'NEUTRAL')
+                indicators['Williams_R'] = {
+                    'value': round(willr_val, 2),
+                    'signal': williams_signal,
+                    'description': f'Williams %R at {round(willr_val, 2)}'
+                }
         
-        buy_signals = sum(1 for ind in indicators.values() if ind['signal'] == 'BUY')
-        sell_signals = sum(1 for ind in indicators.values() if ind['signal'] == 'SELL')
+        # Calculate overall signal
+        buy_signals = sum(1 for ind in indicators.values() if isinstance(ind, dict) and ind.get('signal') == 'BUY')
+        sell_signals = sum(1 for ind in indicators.values() if isinstance(ind, dict) and ind.get('signal') == 'SELL')
         total_signals = buy_signals + sell_signals
         
         if total_signals > 0:
@@ -146,7 +241,104 @@ def calculate_indicators(ticker='SPY', date=None, period_before=100):
             overall = 'NEUTRAL'
         
         return {
-            'indicators': indicators,
+            'indicators': {k: v for k, v in indicators.items() if k != 'price'},
+            'overall_signal': overall,
+            'buy_count': buy_signals,
+            'sell_count': sell_signals,
+            'price': indicators.get('price', 0)
+        }
+        
+    except Exception as e:
+        print(f"API Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def get_twelve_data_indicators(ticker='SPY', date=None):
+    """
+    Alternative: Fetch technical indicators from Twelve Data API
+    Free tier: 800 requests/day - Get API key from https://twelvedata.com/
+    """
+    API_KEY = 'YOUR_TWELVE_DATA_API_KEY'  # Replace with your API key
+    
+    try:
+        base_url = 'https://api.twelvedata.com'
+        
+        # Get multiple indicators in one call
+        indicators_list = 'rsi,macd,stoch,adx,cci,bbands,sma,willr'
+        
+        params = {
+            'symbol': ticker,
+            'interval': '1day',
+            'apikey': API_KEY,
+            'outputsize': 1
+        }
+        
+        all_indicators = {}
+        
+        # RSI
+        rsi_response = requests.get(f'{base_url}/rsi', params={**params, 'time_period': 14}, timeout=10)
+        if rsi_response.status_code == 200:
+            rsi_data = rsi_response.json()
+            if 'values' in rsi_data and len(rsi_data['values']) > 0:
+                rsi_val = float(rsi_data['values'][0]['rsi'])
+                rsi_signal = 'BUY' if rsi_val < 30 else ('SELL' if rsi_val > 70 else 'NEUTRAL')
+                all_indicators['RSI'] = {
+                    'value': round(rsi_val, 2),
+                    'signal': rsi_signal,
+                    'description': f'RSI at {round(rsi_val, 2)}'
+                }
+        time.sleep(1)
+        
+        # MACD
+        macd_response = requests.get(f'{base_url}/macd', params=params, timeout=10)
+        if macd_response.status_code == 200:
+            macd_data = macd_response.json()
+            if 'values' in macd_data and len(macd_data['values']) > 0:
+                macd_val = float(macd_data['values'][0]['macd'])
+                signal_val = float(macd_data['values'][0]['macd_signal'])
+                macd_signal = 'BUY' if macd_val > signal_val else 'SELL'
+                all_indicators['MACD'] = {
+                    'value': round(macd_val, 4),
+                    'signal': macd_signal,
+                    'description': f'MACD {round(macd_val, 4)} vs Signal {round(signal_val, 4)}'
+                }
+        time.sleep(1)
+        
+        # Get current price
+        quote_response = requests.get(f'{base_url}/price', params={'symbol': ticker, 'apikey': API_KEY}, timeout=10)
+        price = 0
+        if quote_response.status_code == 200:
+            price_data = quote_response.json()
+            if 'price' in price_data:
+                price = float(price_data['price'])
+        
+        # Stochastic
+        stoch_response = requests.get(f'{base_url}/stoch', params=params, timeout=10)
+        if stoch_response.status_code == 200:
+            stoch_data = stoch_response.json()
+            if 'values' in stoch_data and len(stoch_data['values']) > 0:
+                k_val = float(stoch_data['values'][0]['slow_k'])
+                stoch_signal = 'BUY' if k_val < 20 else ('SELL' if k_val > 80 else 'NEUTRAL')
+                all_indicators['Stochastic'] = {
+                    'value': round(k_val, 2),
+                    'signal': stoch_signal,
+                    'description': f'Stochastic at {round(k_val, 2)}%'
+                }
+        time.sleep(1)
+        
+        # Continue with other indicators...
+        # ADX, CCI, Bollinger Bands, SMA, Williams %R, etc.
+        
+        buy_signals = sum(1 for ind in all_indicators.values() if ind.get('signal') == 'BUY')
+        sell_signals = sum(1 for ind in all_indicators.values() if ind.get('signal') == 'SELL')
+        total_signals = buy_signals + sell_signals
+        
+        overall = 'BUY' if buy_signals > sell_signals else ('SELL' if sell_signals > buy_signals else 'NEUTRAL')
+        
+        return {
+            'indicators': all_indicators,
             'overall_signal': overall,
             'buy_count': buy_signals,
             'sell_count': sell_signals,
@@ -154,9 +346,7 @@ def calculate_indicators(ticker='SPY', date=None, period_before=100):
         }
         
     except Exception as e:
-        print(f"Error: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        print(f"API Error: {str(e)}")
         return None
 
 
@@ -215,11 +405,16 @@ def get_gdelt_news(event_name, event_date, num_articles=2):
 
 def create_calendar_with_indicators_and_news(start_year=2001, end_year=2026, 
                                              fetch_news=True, fetch_indicators=True,
-                                             ticker='SPY'):
-    """Create comprehensive economic calendar with indicators and news"""
+                                             ticker='SPY', api_choice='twelve'):
+    """
+    Create comprehensive economic calendar with indicators and news
+    
+    api_choice: 'alpha' for Alpha Vantage or 'twelve' for Twelve Data
+    """
     print("=" * 80)
     print(f"ECONOMIC CALENDAR + TECHNICAL INDICATORS + NEWS ({start_year}-{end_year})")
     print(f"Ticker: {ticker}")
+    print(f"API: {api_choice.upper()}")
     print("=" * 80 + "\n")
     
     events = []
@@ -238,14 +433,17 @@ def create_calendar_with_indicators_and_news(start_year=2001, end_year=2026,
                 
                 indicators = None
                 if fetch_indicators:
-                    print(f"  Calculating indicators for {event_date}...", end=" ")
-                    indicators = calculate_indicators(ticker, event_date)
+                    print(f"  Fetching indicators for {event_date}...", end=" ")
+                    if api_choice == 'alpha':
+                        indicators = get_technical_indicators_api(ticker, event_date)
+                    else:
+                        indicators = get_twelve_data_indicators(ticker, event_date)
+                    
                     if indicators:
                         events_with_indicators += 1
                         print("✓")
                     else:
                         print("✗")
-                    time.sleep(0.5)
                 
                 news = []
                 if fetch_news:
@@ -273,14 +471,17 @@ def create_calendar_with_indicators_and_news(start_year=2001, end_year=2026,
             
             indicators = None
             if fetch_indicators:
-                print(f"  Calculating indicators for {event_date}...", end=" ")
-                indicators = calculate_indicators(ticker, event_date)
+                print(f"  Fetching indicators for {event_date}...", end=" ")
+                if api_choice == 'alpha':
+                    indicators = get_technical_indicators_api(ticker, event_date)
+                else:
+                    indicators = get_twelve_data_indicators(ticker, event_date)
+                
                 if indicators:
                     events_with_indicators += 1
                     print("✓")
                 else:
                     print("✗")
-                time.sleep(0.5)
             
             news = []
             if fetch_news:
@@ -388,16 +589,24 @@ if __name__ == "__main__":
     print("\n" + "=" * 80)
     print("ECONOMIC CALENDAR + TECHNICAL INDICATORS + NEWS")
     print("=" * 80)
-    print("\nThis creates a calendar with:")
-    print("• Economic events (NFP, CPI, etc.)")
-    print("• 12 technical indicators (RSI, MACD, Bollinger, Stochastic, etc.)")
+    print("\nThis fetches data from APIs:")
+    print("• Technical indicators from Alpha Vantage or Twelve Data")
     print("• News articles from GDELT")
-    print("\n⚠ NOTE: Full run (2001-2026) takes 30-60 minutes")
+    print("\n⚠ SETUP REQUIRED:")
+    print("1. Get FREE API key from:")
+    print("   - Alpha Vantage: https://www.alphavantage.co/support/#api-key")
+    print("   - OR Twelve Data: https://twelvedata.com/")
+    print("2. Replace 'YOUR_API_KEY' in the code with your actual key")
+    print("\n⚠ NOTE: API rate limits apply - Full run may take several hours")
     print("=" * 80)
     
-    choice = "y" #input("\n1. Quick test (2024-2025)\n2. Full run (2001-2026)\nChoice: ").strip()
+    choice = 1 # input("\n1. Quick test (2024-2025)\n2. Full run (2001-2026)\nChoice: ").strip()
+    api_choice ="alpha" #input("API Choice (alpha/twelve): ").strip().lower()
+    
+    if api_choice not in ['alpha', 'twelve']:
+        api_choice = 'twelve'
     
     if choice == '1':
-        create_calendar_with_indicators_and_news(2024, 2025, True, True, 'SPY')
+        create_calendar_with_indicators_and_news(2024, 2025, True, True, 'SPY', api_choice)
     else:
-        create_calendar_with_indicators_and_news(2001, 2026, True, True, 'SPY')
+        create_calendar_with_indicators_and_news(2001, 2026, True, True, 'SPY', api_choice)
