@@ -22,13 +22,17 @@ def calculate_indicators(ticker='SPY', date=None, period_before=100):
         if len(df) < 50:
             return None
         
+        # Get scalar values at the end
+        price = float(df['Close'].iloc[-1])
+        current_volume = float(df['Volume'].iloc[-1])
+        
         # RSI
         delta = df['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gain / loss
         rsi = 100 - (100 / (1 + rs))
-        rsi_val = rsi.iloc[-1]
+        rsi_val = float(rsi.iloc[-1])
         rsi_signal = 'BUY' if rsi_val < 30 else ('SELL' if rsi_val > 70 else 'NEUTRAL')
         
         # MACD
@@ -36,58 +40,70 @@ def calculate_indicators(ticker='SPY', date=None, period_before=100):
         exp2 = df['Close'].ewm(span=26, adjust=False).mean()
         macd = exp1 - exp2
         signal = macd.ewm(span=9, adjust=False).mean()
-        macd_val = macd.iloc[-1]
-        signal_val = signal.iloc[-1]
+        macd_val = float(macd.iloc[-1])
+        signal_val = float(signal.iloc[-1])
         macd_signal = 'BUY' if macd_val > signal_val else 'SELL'
         
         # Moving Averages
-        sma_20 = df['Close'].rolling(window=20).mean().iloc[-1]
-        sma_50 = df['Close'].rolling(window=50).mean().iloc[-1]
-        price = df['Close'].iloc[-1]
-        ma_signal = 'BUY' if price > sma_20 and sma_20 > sma_50 else ('SELL' if price < sma_20 and sma_20 < sma_50 else 'NEUTRAL')
+        sma_20 = float(df['Close'].rolling(window=20).mean().iloc[-1])
+        sma_50 = float(df['Close'].rolling(window=50).mean().iloc[-1])
+        ma_signal = 'BUY' if (price > sma_20 and sma_20 > sma_50) else ('SELL' if (price < sma_20 and sma_20 < sma_50) else 'NEUTRAL')
         
         # Bollinger Bands
         bb_middle = df['Close'].rolling(window=20).mean()
         bb_std = df['Close'].rolling(window=20).std()
         bb_upper = bb_middle + (bb_std * 2)
         bb_lower = bb_middle - (bb_std * 2)
-        bb_upper_val = bb_upper.iloc[-1]
-        bb_lower_val = bb_lower.iloc[-1]
+        bb_upper_val = float(bb_upper.iloc[-1])
+        bb_lower_val = float(bb_lower.iloc[-1])
         bb_signal = 'SELL' if price > bb_upper_val else ('BUY' if price < bb_lower_val else 'NEUTRAL')
         
         # Stochastic
         low_14 = df['Low'].rolling(window=14).min()
         high_14 = df['High'].rolling(window=14).max()
         k_percent = 100 * ((df['Close'] - low_14) / (high_14 - low_14))
-        k_val = k_percent.iloc[-1]
+        k_val = float(k_percent.iloc[-1])
         stoch_signal = 'BUY' if k_val < 20 else ('SELL' if k_val > 80 else 'NEUTRAL')
         
-        # ADX (trend strength)
+        # ADX (trend strength) - simplified ATR calculation
         high_low = df['High'] - df['Low']
-        high_close = np.abs(df['High'] - df['Close'].shift())
-        low_close = np.abs(df['Low'] - df['Close'].shift())
-        ranges = pd.DataFrame({'hl': high_low, 'hc': high_close, 'lc': low_close})
-        tr = ranges.max(axis=1)
+        high_close = (df['High'] - df['Close'].shift()).abs()
+        low_close = (df['Low'] - df['Close'].shift()).abs()
+        
+        tr = pd.DataFrame({
+            'hl': high_low,
+            'hc': high_close,
+            'lc': low_close
+        }).max(axis=1)
+        
         atr = tr.rolling(14).mean()
-        adx_val = atr.iloc[-1] if not pd.isna(atr.iloc[-1]) else 0
+        adx_val = float(atr.iloc[-1]) if not pd.isna(atr.iloc[-1]) else 0
         adx_signal = 'STRONG TREND' if adx_val > 25 else 'WEAK TREND'
         
         # Volume
-        avg_volume = df['Volume'].rolling(window=20).mean().iloc[-1]
-        current_volume = df['Volume'].iloc[-1]
+        avg_volume = float(df['Volume'].rolling(window=20).mean().iloc[-1])
         volume_signal = 'HIGH' if current_volume > avg_volume * 1.5 else ('LOW' if current_volume < avg_volume * 0.5 else 'NORMAL')
         
         # OBV (On Balance Volume)
         obv = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
         obv_ma = obv.rolling(window=20).mean()
-        obv_signal = 'BUY' if obv.iloc[-1] > obv_ma.iloc[-1] else 'SELL'
+        obv_val = float(obv.iloc[-1])
+        obv_ma_val = float(obv_ma.iloc[-1])
+        obv_signal = 'BUY' if obv_val > obv_ma_val else 'SELL'
         
         # ATR (volatility)
-        atr_percent = (atr.iloc[-1] / price) * 100 if price > 0 else 0
+        atr_percent = (adx_val / price) * 100 if price > 0 else 0
         atr_signal = 'HIGH VOLATILITY' if atr_percent > 2 else 'LOW VOLATILITY'
         
         # Williams %R
-        williams_r = -100 * ((high_14.iloc[-1] - price) / (high_14.iloc[-1] - low_14.iloc[-1]))
+        high_14_val = float(high_14.iloc[-1])
+        low_14_val = float(low_14.iloc[-1])
+        
+        if high_14_val != low_14_val:
+            williams_r = -100 * ((high_14_val - price) / (high_14_val - low_14_val))
+        else:
+            williams_r = -50
+            
         williams_signal = 'BUY' if williams_r < -80 else ('SELL' if williams_r > -20 else 'NEUTRAL')
         
         # CCI (Commodity Channel Index)
@@ -95,29 +111,29 @@ def calculate_indicators(ticker='SPY', date=None, period_before=100):
         sma_tp = tp.rolling(window=20).mean()
         mad = tp.rolling(window=20).apply(lambda x: np.abs(x - x.mean()).mean())
         cci = (tp - sma_tp) / (0.015 * mad)
-        cci_val = cci.iloc[-1]
+        cci_val = float(cci.iloc[-1])
         cci_signal = 'BUY' if cci_val < -100 else ('SELL' if cci_val > 100 else 'NEUTRAL')
         
         # ROC (Rate of Change)
         if len(df) >= 10:
-            roc = ((price - df['Close'].iloc[-10]) / df['Close'].iloc[-10]) * 100
+            roc = ((price - float(df['Close'].iloc[-10])) / float(df['Close'].iloc[-10])) * 100
         else:
             roc = 0
         roc_signal = 'BUY' if roc > 5 else ('SELL' if roc < -5 else 'NEUTRAL')
         
         indicators = {
-            'RSI': {'value': round(float(rsi_val), 2), 'signal': rsi_signal, 'description': f'RSI at {round(float(rsi_val), 2)}'},
-            'MACD': {'value': round(float(macd_val), 4), 'signal': macd_signal, 'description': f'MACD {round(float(macd_val), 4)} vs Signal {round(float(signal_val), 4)}'},
-            'MA_Cross': {'value': f'{round(float(sma_20), 2)}/{round(float(sma_50), 2)}', 'signal': ma_signal, 'description': f'Price {round(float(price), 2)} vs SMA20 {round(float(sma_20), 2)}'},
-            'Bollinger': {'value': f'{round(float(bb_lower_val), 2)}-{round(float(bb_upper_val), 2)}', 'signal': bb_signal, 'description': f'Price at {round(float(price), 2)}'},
-            'Stochastic': {'value': round(float(k_val), 2), 'signal': stoch_signal, 'description': f'Stochastic at {round(float(k_val), 2)}%'},
-            'ADX': {'value': round(float(adx_val), 2), 'signal': adx_signal, 'description': f'Trend strength {round(float(adx_val), 2)}'},
+            'RSI': {'value': round(rsi_val, 2), 'signal': rsi_signal, 'description': f'RSI at {round(rsi_val, 2)}'},
+            'MACD': {'value': round(macd_val, 4), 'signal': macd_signal, 'description': f'MACD {round(macd_val, 4)} vs Signal {round(signal_val, 4)}'},
+            'MA_Cross': {'value': f'{round(sma_20, 2)}/{round(sma_50, 2)}', 'signal': ma_signal, 'description': f'Price {round(price, 2)} vs SMA20 {round(sma_20, 2)}'},
+            'Bollinger': {'value': f'{round(bb_lower_val, 2)}-{round(bb_upper_val, 2)}', 'signal': bb_signal, 'description': f'Price at {round(price, 2)}'},
+            'Stochastic': {'value': round(k_val, 2), 'signal': stoch_signal, 'description': f'Stochastic at {round(k_val, 2)}%'},
+            'ADX': {'value': round(adx_val, 2), 'signal': adx_signal, 'description': f'Trend strength {round(adx_val, 2)}'},
             'Volume': {'value': int(current_volume), 'signal': volume_signal, 'description': f'Vol {int(current_volume):,} vs Avg {int(avg_volume):,}'},
-            'OBV': {'value': int(obv.iloc[-1]), 'signal': obv_signal, 'description': 'Volume trend indicator'},
-            'ATR': {'value': round(float(atr_percent), 2), 'signal': atr_signal, 'description': f'Volatility {round(float(atr_percent), 2)}%'},
-            'Williams_R': {'value': round(float(williams_r), 2), 'signal': williams_signal, 'description': f'Williams %R at {round(float(williams_r), 2)}'},
-            'CCI': {'value': round(float(cci_val), 2), 'signal': cci_signal, 'description': f'CCI at {round(float(cci_val), 2)}'},
-            'ROC': {'value': round(float(roc), 2), 'signal': roc_signal, 'description': f'Rate of change {round(float(roc), 2)}%'}
+            'OBV': {'value': int(obv_val), 'signal': obv_signal, 'description': 'Volume trend indicator'},
+            'ATR': {'value': round(atr_percent, 2), 'signal': atr_signal, 'description': f'Volatility {round(atr_percent, 2)}%'},
+            'Williams_R': {'value': round(williams_r, 2), 'signal': williams_signal, 'description': f'Williams %R at {round(williams_r, 2)}'},
+            'CCI': {'value': round(cci_val, 2), 'signal': cci_signal, 'description': f'CCI at {round(cci_val, 2)}'},
+            'ROC': {'value': round(roc, 2), 'signal': roc_signal, 'description': f'Rate of change {round(roc, 2)}%'}
         }
         
         buy_signals = sum(1 for ind in indicators.values() if ind['signal'] == 'BUY')
@@ -134,11 +150,13 @@ def calculate_indicators(ticker='SPY', date=None, period_before=100):
             'overall_signal': overall,
             'buy_count': buy_signals,
             'sell_count': sell_signals,
-            'price': round(float(price), 2)
+            'price': round(price, 2)
         }
         
     except Exception as e:
-        print(f"Error: {str(e)[:50]}")
+        print(f"Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
