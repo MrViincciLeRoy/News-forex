@@ -3,26 +3,63 @@ import requests
 from datetime import datetime, timedelta
 import time
 import json
+import os
+
+def get_api_keys():
+    """
+    Get API keys from environment variables
+    Supports multiple Alpha Vantage keys for rotation
+    """
+    # Get all Alpha Vantage API keys from environment
+    alpha_keys = []
+    i = 1
+    while True:
+        key = os.environ.get(f'ALPHA_VANTAGE_API_KEY_{i}')
+        if key:
+            alpha_keys.append(key)
+            i += 1
+        else:
+            break
+    
+    # Fallback to single key if no numbered keys found
+    if not alpha_keys:
+        single_key = os.environ.get('ALPHA_VANTAGE_API_KEY')
+        if single_key:
+            alpha_keys.append(single_key)
+    
+    return alpha_keys
+
+# Global variables for API key rotation
+ALPHA_KEYS = get_api_keys()
+CURRENT_KEY_INDEX = 0
+
+def get_next_api_key():
+    """Rotate through available API keys"""
+    global CURRENT_KEY_INDEX
+    if not ALPHA_KEYS:
+        raise ValueError("No Alpha Vantage API keys found in environment variables")
+    
+    key = ALPHA_KEYS[CURRENT_KEY_INDEX]
+    CURRENT_KEY_INDEX = (CURRENT_KEY_INDEX + 1) % len(ALPHA_KEYS)
+    return key
 
 def get_technical_indicators_api(ticker='SPY', date=None):
     """
-    Fetch technical indicators from Alpha Vantage API
-    You'll need a free API key from https://www.alphavantage.co/support/#api-key
+    Fetch technical indicators from Alpha Vantage API with key rotation
     """
-    API_KEY = 'OW8A4KQB2V0DQJV3'  # Replace with your API key
-    
     try:
         indicators = {}
         base_url = 'https://www.alphavantage.co/query'
         
         # RSI
+        api_key = get_next_api_key()
         rsi_params = {
             'function': 'RSI',
             'symbol': ticker,
             'interval': 'daily',
             'time_period': 14,
             'series_type': 'close',
-            'apikey': API_KEY
+            'apikey': api_key
         }
         rsi_response = requests.get(base_url, params=rsi_params, timeout=10)
         if rsi_response.status_code == 200:
@@ -39,12 +76,13 @@ def get_technical_indicators_api(ticker='SPY', date=None):
         time.sleep(12)  # Alpha Vantage free tier: 5 calls/minute
         
         # MACD
+        api_key = get_next_api_key()
         macd_params = {
             'function': 'MACD',
             'symbol': ticker,
             'interval': 'daily',
             'series_type': 'close',
-            'apikey': API_KEY
+            'apikey': api_key
         }
         macd_response = requests.get(base_url, params=macd_params, timeout=10)
         if macd_response.status_code == 200:
@@ -62,11 +100,12 @@ def get_technical_indicators_api(ticker='SPY', date=None):
         time.sleep(12)
         
         # Stochastic
+        api_key = get_next_api_key()
         stoch_params = {
             'function': 'STOCH',
             'symbol': ticker,
             'interval': 'daily',
-            'apikey': API_KEY
+            'apikey': api_key
         }
         stoch_response = requests.get(base_url, params=stoch_params, timeout=10)
         if stoch_response.status_code == 200:
@@ -83,12 +122,13 @@ def get_technical_indicators_api(ticker='SPY', date=None):
         time.sleep(12)
         
         # ADX
+        api_key = get_next_api_key()
         adx_params = {
             'function': 'ADX',
             'symbol': ticker,
             'interval': 'daily',
             'time_period': 14,
-            'apikey': API_KEY
+            'apikey': api_key
         }
         adx_response = requests.get(base_url, params=adx_params, timeout=10)
         if adx_response.status_code == 200:
@@ -105,12 +145,13 @@ def get_technical_indicators_api(ticker='SPY', date=None):
         time.sleep(12)
         
         # CCI
+        api_key = get_next_api_key()
         cci_params = {
             'function': 'CCI',
             'symbol': ticker,
             'interval': 'daily',
             'time_period': 20,
-            'apikey': API_KEY
+            'apikey': api_key
         }
         cci_response = requests.get(base_url, params=cci_params, timeout=10)
         if cci_response.status_code == 200:
@@ -127,13 +168,14 @@ def get_technical_indicators_api(ticker='SPY', date=None):
         time.sleep(12)
         
         # Bollinger Bands
+        api_key = get_next_api_key()
         bbands_params = {
             'function': 'BBANDS',
             'symbol': ticker,
             'interval': 'daily',
             'time_period': 20,
             'series_type': 'close',
-            'apikey': API_KEY
+            'apikey': api_key
         }
         bbands_response = requests.get(base_url, params=bbands_params, timeout=10)
         if bbands_response.status_code == 200:
@@ -145,10 +187,11 @@ def get_technical_indicators_api(ticker='SPY', date=None):
                 middle = float(bbands_data['Technical Analysis: BBANDS'][latest_date]['Real Middle Band'])
                 
                 # Get current price
+                api_key = get_next_api_key()
                 quote_params = {
                     'function': 'GLOBAL_QUOTE',
                     'symbol': ticker,
-                    'apikey': API_KEY
+                    'apikey': api_key
                 }
                 quote_response = requests.get(base_url, params=quote_params, timeout=10)
                 price = 0
@@ -167,13 +210,14 @@ def get_technical_indicators_api(ticker='SPY', date=None):
         time.sleep(12)
         
         # SMA
+        api_key = get_next_api_key()
         sma20_params = {
             'function': 'SMA',
             'symbol': ticker,
             'interval': 'daily',
             'time_period': 20,
             'series_type': 'close',
-            'apikey': API_KEY
+            'apikey': api_key
         }
         sma20_response = requests.get(base_url, params=sma20_params, timeout=10)
         sma_20 = 0
@@ -184,13 +228,14 @@ def get_technical_indicators_api(ticker='SPY', date=None):
                 sma_20 = float(sma20_data['Technical Analysis: SMA'][latest_date]['SMA'])
         time.sleep(12)
         
+        api_key = get_next_api_key()
         sma50_params = {
             'function': 'SMA',
             'symbol': ticker,
             'interval': 'daily',
             'time_period': 50,
             'series_type': 'close',
-            'apikey': API_KEY
+            'apikey': api_key
         }
         sma50_response = requests.get(base_url, params=sma50_params, timeout=10)
         sma_50 = 0
@@ -210,12 +255,13 @@ def get_technical_indicators_api(ticker='SPY', date=None):
         time.sleep(12)
         
         # Williams %R
+        api_key = get_next_api_key()
         willr_params = {
             'function': 'WILLR',
             'symbol': ticker,
             'interval': 'daily',
             'time_period': 14,
-            'apikey': API_KEY
+            'apikey': api_key
         }
         willr_response = requests.get(base_url, params=willr_params, timeout=10)
         if willr_response.status_code == 200:
@@ -252,101 +298,6 @@ def get_technical_indicators_api(ticker='SPY', date=None):
         print(f"API Error: {str(e)}")
         import traceback
         traceback.print_exc()
-        return None
-
-
-def get_twelve_data_indicators(ticker='SPY', date=None):
-    """
-    Alternative: Fetch technical indicators from Twelve Data API
-    Free tier: 800 requests/day - Get API key from https://twelvedata.com/
-    """
-    API_KEY = 'YOUR_TWELVE_DATA_API_KEY'  # Replace with your API key
-    
-    try:
-        base_url = 'https://api.twelvedata.com'
-        
-        # Get multiple indicators in one call
-        indicators_list = 'rsi,macd,stoch,adx,cci,bbands,sma,willr'
-        
-        params = {
-            'symbol': ticker,
-            'interval': '1day',
-            'apikey': API_KEY,
-            'outputsize': 1
-        }
-        
-        all_indicators = {}
-        
-        # RSI
-        rsi_response = requests.get(f'{base_url}/rsi', params={**params, 'time_period': 14}, timeout=10)
-        if rsi_response.status_code == 200:
-            rsi_data = rsi_response.json()
-            if 'values' in rsi_data and len(rsi_data['values']) > 0:
-                rsi_val = float(rsi_data['values'][0]['rsi'])
-                rsi_signal = 'BUY' if rsi_val < 30 else ('SELL' if rsi_val > 70 else 'NEUTRAL')
-                all_indicators['RSI'] = {
-                    'value': round(rsi_val, 2),
-                    'signal': rsi_signal,
-                    'description': f'RSI at {round(rsi_val, 2)}'
-                }
-        time.sleep(1)
-        
-        # MACD
-        macd_response = requests.get(f'{base_url}/macd', params=params, timeout=10)
-        if macd_response.status_code == 200:
-            macd_data = macd_response.json()
-            if 'values' in macd_data and len(macd_data['values']) > 0:
-                macd_val = float(macd_data['values'][0]['macd'])
-                signal_val = float(macd_data['values'][0]['macd_signal'])
-                macd_signal = 'BUY' if macd_val > signal_val else 'SELL'
-                all_indicators['MACD'] = {
-                    'value': round(macd_val, 4),
-                    'signal': macd_signal,
-                    'description': f'MACD {round(macd_val, 4)} vs Signal {round(signal_val, 4)}'
-                }
-        time.sleep(1)
-        
-        # Get current price
-        quote_response = requests.get(f'{base_url}/price', params={'symbol': ticker, 'apikey': API_KEY}, timeout=10)
-        price = 0
-        if quote_response.status_code == 200:
-            price_data = quote_response.json()
-            if 'price' in price_data:
-                price = float(price_data['price'])
-        
-        # Stochastic
-        stoch_response = requests.get(f'{base_url}/stoch', params=params, timeout=10)
-        if stoch_response.status_code == 200:
-            stoch_data = stoch_response.json()
-            if 'values' in stoch_data and len(stoch_data['values']) > 0:
-                k_val = float(stoch_data['values'][0]['slow_k'])
-                stoch_signal = 'BUY' if k_val < 20 else ('SELL' if k_val > 80 else 'NEUTRAL')
-                all_indicators['Stochastic'] = {
-                    'value': round(k_val, 2),
-                    'signal': stoch_signal,
-                    'description': f'Stochastic at {round(k_val, 2)}%'
-                }
-        time.sleep(1)
-        
-        # Continue with other indicators...
-        # ADX, CCI, Bollinger Bands, SMA, Williams %R, etc.
-        
-        buy_signals = sum(1 for ind in all_indicators.values() if ind.get('signal') == 'BUY')
-        sell_signals = sum(1 for ind in all_indicators.values() if ind.get('signal') == 'SELL')
-        total_signals = buy_signals + sell_signals
-        
-        overall = 'BUY' if buy_signals > sell_signals else ('SELL' if sell_signals > buy_signals else 'NEUTRAL')
-        
-        return {
-            'indicators': all_indicators,
-            'overall_signal': overall,
-            'buy_count': buy_signals,
-            'sell_count': sell_signals,
-            'price': round(price, 2)
-        }
-        
-    except Exception as e:
-        print(f"API Error: {str(e)}")
         return None
 
 
@@ -403,18 +354,17 @@ def get_gdelt_news(event_name, event_date, num_articles=2):
     return []
 
 
-def create_calendar_with_indicators_and_news(start_year=2001, end_year=2026, 
+def create_calendar_with_indicators_and_news(start_year=2024, end_year=2025, 
                                              fetch_news=True, fetch_indicators=True,
-                                             ticker='SPY', api_choice='twelve'):
+                                             ticker='SPY'):
     """
     Create comprehensive economic calendar with indicators and news
-    
-    api_choice: 'alpha' for Alpha Vantage or 'twelve' for Twelve Data
+    Uses Alpha Vantage API with automatic key rotation
     """
     print("=" * 80)
     print(f"ECONOMIC CALENDAR + TECHNICAL INDICATORS + NEWS ({start_year}-{end_year})")
     print(f"Ticker: {ticker}")
-    print(f"API: {api_choice.upper()}")
+    print(f"API Keys Available: {len(ALPHA_KEYS)}")
     print("=" * 80 + "\n")
     
     events = []
@@ -434,10 +384,7 @@ def create_calendar_with_indicators_and_news(start_year=2001, end_year=2026,
                 indicators = None
                 if fetch_indicators:
                     print(f"  Fetching indicators for {event_date}...", end=" ")
-                    if api_choice == 'alpha':
-                        indicators = get_technical_indicators_api(ticker, event_date)
-                    else:
-                        indicators = get_twelve_data_indicators(ticker, event_date)
+                    indicators = get_technical_indicators_api(ticker, event_date)
                     
                     if indicators:
                         events_with_indicators += 1
@@ -472,10 +419,7 @@ def create_calendar_with_indicators_and_news(start_year=2001, end_year=2026,
             indicators = None
             if fetch_indicators:
                 print(f"  Fetching indicators for {event_date}...", end=" ")
-                if api_choice == 'alpha':
-                    indicators = get_technical_indicators_api(ticker, event_date)
-                else:
-                    indicators = get_twelve_data_indicators(ticker, event_date)
+                indicators = get_technical_indicators_api(ticker, event_date)
                 
                 if indicators:
                     events_with_indicators += 1
@@ -590,23 +534,10 @@ if __name__ == "__main__":
     print("ECONOMIC CALENDAR + TECHNICAL INDICATORS + NEWS")
     print("=" * 80)
     print("\nThis fetches data from APIs:")
-    print("• Technical indicators from Alpha Vantage or Twelve Data")
+    print("• Technical indicators from Alpha Vantage")
     print("• News articles from GDELT")
-    print("\n⚠ SETUP REQUIRED:")
-    print("1. Get FREE API key from:")
-    print("   - Alpha Vantage: https://www.alphavantage.co/support/#api-key")
-    print("   - OR Twelve Data: https://twelvedata.com/")
-    print("2. Replace 'YOUR_API_KEY' in the code with your actual key")
-    print("\n⚠ NOTE: API rate limits apply - Full run may take several hours")
-    print("=" * 80)
+    print(f"\nAPI Keys detected: {len(ALPHA_KEYS)}")
+    print("=" * 80 + "\n")
     
-    choice = 1 # input("\n1. Quick test (2024-2025)\n2. Full run (2001-2026)\nChoice: ").strip()
-    api_choice ="alpha" #input("API Choice (alpha/twelve): ").strip().lower()
-    
-    if api_choice not in ['alpha', 'twelve']:
-        api_choice = 'twelve'
-    
-    if choice == '1':
-        create_calendar_with_indicators_and_news(2024, 2025, True, True, 'SPY', api_choice)
-    else:
-        create_calendar_with_indicators_and_news(2001, 2026, True, True, 'SPY', api_choice)
+    # Run with default settings (2024-2025)
+    create_calendar_with_indicators_and_news(2024, 2025, True, True, 'SPY')
