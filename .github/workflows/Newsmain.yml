@@ -28,7 +28,7 @@ jobs:
         python economic_calendar_generator.py <<EOF
         y
         EOF
-      timeout-minutes: 45
+      timeout-minutes: 120
     
     - name: List generated files
       run: |
