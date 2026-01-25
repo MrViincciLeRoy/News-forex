@@ -20,7 +20,7 @@ jobs:
     
     - name: Install dependencies
       run: |
-        pip install pandas requests
+        pip install pandas requests aiohttp
     
     - name: Run calendar generator
       env:
@@ -29,14 +29,14 @@ jobs:
         ALPHA_VANTAGE_API_KEY_3: ${{ secrets.ALPHA_VANTAGE_API_KEY_3 }}
         ALPHA_VANTAGE_API_KEY_4: ${{ secrets.ALPHA_VANTAGE_API_KEY_4 }}
         ALPHA_VANTAGE_API_KEY_5: ${{ secrets.ALPHA_VANTAGE_API_KEY_5 }}
-        ALPHA_VANTAGE_API_KEY_6: ${{ secrets.ALPHA_VANTAGE_API_KEY_6 }}
       run: |
         python economic_calendar_generator.py
     
-    - name: Commit and push results
-      run: |
-        git config --local user.email "github-actions[bot]@users.noreply.github.com"
-        git config --local user.name "github-actions[bot]"
-        git add *.json *.csv
-        git commit -m "Update economic calendar data" || echo "No changes to commit"
-        git push
+    - name: Upload artifacts (90-day retention)
+      uses: actions/upload-artifact@v3
+      with:
+        name: economic-calendar-data
+        path: |
+          economic_calendar_full_*.json
+          economic_calendar_full_*.csv
+        retention-days: 90
