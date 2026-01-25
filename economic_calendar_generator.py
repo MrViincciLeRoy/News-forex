@@ -22,9 +22,9 @@ def calculate_indicators(ticker='SPY', date=None, period_before=100):
         if len(df) < 50:
             return None
         
-        # Get scalar values at the end
-        price = float(df['Close'].iloc[-1])
-        current_volume = float(df['Volume'].iloc[-1])
+        # Get scalar values at the end - FIXED
+        price = df['Close'].iloc[-1].item()
+        current_volume = df['Volume'].iloc[-1].item()
         
         # RSI
         delta = df['Close'].diff()
@@ -32,7 +32,7 @@ def calculate_indicators(ticker='SPY', date=None, period_before=100):
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gain / loss
         rsi = 100 - (100 / (1 + rs))
-        rsi_val = float(rsi.iloc[-1])
+        rsi_val = rsi.iloc[-1].item()
         rsi_signal = 'BUY' if rsi_val < 30 else ('SELL' if rsi_val > 70 else 'NEUTRAL')
         
         # MACD
@@ -40,13 +40,13 @@ def calculate_indicators(ticker='SPY', date=None, period_before=100):
         exp2 = df['Close'].ewm(span=26, adjust=False).mean()
         macd = exp1 - exp2
         signal = macd.ewm(span=9, adjust=False).mean()
-        macd_val = float(macd.iloc[-1])
-        signal_val = float(signal.iloc[-1])
+        macd_val = macd.iloc[-1].item()
+        signal_val = signal.iloc[-1].item()
         macd_signal = 'BUY' if macd_val > signal_val else 'SELL'
         
         # Moving Averages
-        sma_20 = float(df['Close'].rolling(window=20).mean().iloc[-1])
-        sma_50 = float(df['Close'].rolling(window=50).mean().iloc[-1])
+        sma_20 = df['Close'].rolling(window=20).mean().iloc[-1].item()
+        sma_50 = df['Close'].rolling(window=50).mean().iloc[-1].item()
         ma_signal = 'BUY' if (price > sma_20 and sma_20 > sma_50) else ('SELL' if (price < sma_20 and sma_20 < sma_50) else 'NEUTRAL')
         
         # Bollinger Bands
@@ -54,15 +54,15 @@ def calculate_indicators(ticker='SPY', date=None, period_before=100):
         bb_std = df['Close'].rolling(window=20).std()
         bb_upper = bb_middle + (bb_std * 2)
         bb_lower = bb_middle - (bb_std * 2)
-        bb_upper_val = float(bb_upper.iloc[-1])
-        bb_lower_val = float(bb_lower.iloc[-1])
+        bb_upper_val = bb_upper.iloc[-1].item()
+        bb_lower_val = bb_lower.iloc[-1].item()
         bb_signal = 'SELL' if price > bb_upper_val else ('BUY' if price < bb_lower_val else 'NEUTRAL')
         
         # Stochastic
         low_14 = df['Low'].rolling(window=14).min()
         high_14 = df['High'].rolling(window=14).max()
         k_percent = 100 * ((df['Close'] - low_14) / (high_14 - low_14))
-        k_val = float(k_percent.iloc[-1])
+        k_val = k_percent.iloc[-1].item()
         stoch_signal = 'BUY' if k_val < 20 else ('SELL' if k_val > 80 else 'NEUTRAL')
         
         # ADX (trend strength) - simplified ATR calculation
@@ -77,18 +77,18 @@ def calculate_indicators(ticker='SPY', date=None, period_before=100):
         }).max(axis=1)
         
         atr = tr.rolling(14).mean()
-        adx_val = float(atr.iloc[-1]) if not pd.isna(atr.iloc[-1]) else 0
+        adx_val = atr.iloc[-1].item() if not pd.isna(atr.iloc[-1]) else 0
         adx_signal = 'STRONG TREND' if adx_val > 25 else 'WEAK TREND'
         
         # Volume
-        avg_volume = float(df['Volume'].rolling(window=20).mean().iloc[-1])
+        avg_volume = df['Volume'].rolling(window=20).mean().iloc[-1].item()
         volume_signal = 'HIGH' if current_volume > avg_volume * 1.5 else ('LOW' if current_volume < avg_volume * 0.5 else 'NORMAL')
         
         # OBV (On Balance Volume)
         obv = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
         obv_ma = obv.rolling(window=20).mean()
-        obv_val = float(obv.iloc[-1])
-        obv_ma_val = float(obv_ma.iloc[-1])
+        obv_val = obv.iloc[-1].item()
+        obv_ma_val = obv_ma.iloc[-1].item()
         obv_signal = 'BUY' if obv_val > obv_ma_val else 'SELL'
         
         # ATR (volatility)
@@ -96,8 +96,8 @@ def calculate_indicators(ticker='SPY', date=None, period_before=100):
         atr_signal = 'HIGH VOLATILITY' if atr_percent > 2 else 'LOW VOLATILITY'
         
         # Williams %R
-        high_14_val = float(high_14.iloc[-1])
-        low_14_val = float(low_14.iloc[-1])
+        high_14_val = high_14.iloc[-1].item()
+        low_14_val = low_14.iloc[-1].item()
         
         if high_14_val != low_14_val:
             williams_r = -100 * ((high_14_val - price) / (high_14_val - low_14_val))
@@ -111,12 +111,12 @@ def calculate_indicators(ticker='SPY', date=None, period_before=100):
         sma_tp = tp.rolling(window=20).mean()
         mad = tp.rolling(window=20).apply(lambda x: np.abs(x - x.mean()).mean())
         cci = (tp - sma_tp) / (0.015 * mad)
-        cci_val = float(cci.iloc[-1])
+        cci_val = cci.iloc[-1].item()
         cci_signal = 'BUY' if cci_val < -100 else ('SELL' if cci_val > 100 else 'NEUTRAL')
         
         # ROC (Rate of Change)
         if len(df) >= 10:
-            roc = ((price - float(df['Close'].iloc[-10])) / float(df['Close'].iloc[-10])) * 100
+            roc = ((price - df['Close'].iloc[-10].item()) / df['Close'].iloc[-10].item()) * 100
         else:
             roc = 0
         roc_signal = 'BUY' if roc > 5 else ('SELL' if roc < -5 else 'NEUTRAL')
@@ -161,6 +161,7 @@ def calculate_indicators(ticker='SPY', date=None, period_before=100):
 
 
 def get_gdelt_news(event_name, event_date, num_articles=2):
+    """Fetch news articles from GDELT API"""
     keywords_map = {
         'Non-Farm Payrolls': 'nonfarm payrolls jobs report economy',
         'Consumer Price Index': 'CPI inflation consumer prices',
@@ -215,6 +216,7 @@ def get_gdelt_news(event_name, event_date, num_articles=2):
 def create_calendar_with_indicators_and_news(start_year=2001, end_year=2026, 
                                              fetch_news=True, fetch_indicators=True,
                                              ticker='SPY'):
+    """Create comprehensive economic calendar with indicators and news"""
     print("=" * 80)
     print(f"ECONOMIC CALENDAR + TECHNICAL INDICATORS + NEWS ({start_year}-{end_year})")
     print(f"Ticker: {ticker}")
@@ -372,6 +374,7 @@ def create_calendar_with_indicators_and_news(start_year=2001, end_year=2026,
 
 
 def get_nth_weekday(year, month, n, weekday):
+    """Get the nth occurrence of a weekday in a month"""
     first_day = datetime(year, month, 1)
     first_weekday = first_day.weekday()
     offset = (weekday - first_weekday) % 7
