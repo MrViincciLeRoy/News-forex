@@ -542,4 +542,4 @@ if __name__ == "__main__":
     print("=" * 80 + "\n")
     
     # Run with default settings (2024-2025)
-    asyncio.run(create_calendar_with_indicators_and_news(2024, 2025, True, True, 'SPY'))
+    asyncio.run(create_calendar_with_indicators_and_news(2001, 2026, True, True, 'SPY'))
