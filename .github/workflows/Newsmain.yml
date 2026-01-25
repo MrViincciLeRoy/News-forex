@@ -29,6 +29,8 @@ jobs:
         ALPHA_VANTAGE_API_KEY_3: ${{ secrets.ALPHA_VANTAGE_API_KEY_3 }}
         ALPHA_VANTAGE_API_KEY_4: ${{ secrets.ALPHA_VANTAGE_API_KEY_4 }}
         ALPHA_VANTAGE_API_KEY_5: ${{ secrets.ALPHA_VANTAGE_API_KEY_5 }}
+        ALPHA_VANTAGE_API_KEY_6: ${{ secrets.ALPHA_VANTAGE_API_KEY_6 }}
+        
       run: |
         python economic_calendar_generator.py
     
