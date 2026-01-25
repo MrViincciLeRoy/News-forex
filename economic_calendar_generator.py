@@ -66,7 +66,8 @@ def calculate_indicators(ticker='SPY', date=None, period_before=100):
         high_low = df['High'] - df['Low']
         high_close = np.abs(df['High'] - df['Close'].shift())
         low_close = np.abs(df['Low'] - df['Close'].shift())
-        tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+        ranges = pd.DataFrame({'hl': high_low, 'hc': high_close, 'lc': low_close})
+        tr = ranges.max(axis=1)
         atr = tr.rolling(14).mean()
         adx_val = atr.iloc[-1] if not pd.isna(atr.iloc[-1]) else 0
         adx_signal = 'STRONG TREND' if adx_val > 25 else 'WEAK TREND'
@@ -98,22 +99,25 @@ def calculate_indicators(ticker='SPY', date=None, period_before=100):
         cci_signal = 'BUY' if cci_val < -100 else ('SELL' if cci_val > 100 else 'NEUTRAL')
         
         # ROC (Rate of Change)
-        roc = ((price - df['Close'].iloc[-10]) / df['Close'].iloc[-10]) * 100
+        if len(df) >= 10:
+            roc = ((price - df['Close'].iloc[-10]) / df['Close'].iloc[-10]) * 100
+        else:
+            roc = 0
         roc_signal = 'BUY' if roc > 5 else ('SELL' if roc < -5 else 'NEUTRAL')
         
         indicators = {
-            'RSI': {'value': round(rsi_val, 2), 'signal': rsi_signal, 'description': f'RSI at {round(rsi_val, 2)}'},
-            'MACD': {'value': round(macd_val, 4), 'signal': macd_signal, 'description': f'MACD {round(macd_val, 4)} vs Signal {round(signal_val, 4)}'},
-            'MA_Cross': {'value': f'{round(sma_20, 2)}/{round(sma_50, 2)}', 'signal': ma_signal, 'description': f'Price {round(price, 2)} vs SMA20 {round(sma_20, 2)}'},
-            'Bollinger': {'value': f'{round(bb_lower_val, 2)}-{round(bb_upper_val, 2)}', 'signal': bb_signal, 'description': f'Price at {round(price, 2)}'},
-            'Stochastic': {'value': round(k_val, 2), 'signal': stoch_signal, 'description': f'Stochastic at {round(k_val, 2)}%'},
-            'ADX': {'value': round(adx_val, 2), 'signal': adx_signal, 'description': f'Trend strength {round(adx_val, 2)}'},
+            'RSI': {'value': round(float(rsi_val), 2), 'signal': rsi_signal, 'description': f'RSI at {round(float(rsi_val), 2)}'},
+            'MACD': {'value': round(float(macd_val), 4), 'signal': macd_signal, 'description': f'MACD {round(float(macd_val), 4)} vs Signal {round(float(signal_val), 4)}'},
+            'MA_Cross': {'value': f'{round(float(sma_20), 2)}/{round(float(sma_50), 2)}', 'signal': ma_signal, 'description': f'Price {round(float(price), 2)} vs SMA20 {round(float(sma_20), 2)}'},
+            'Bollinger': {'value': f'{round(float(bb_lower_val), 2)}-{round(float(bb_upper_val), 2)}', 'signal': bb_signal, 'description': f'Price at {round(float(price), 2)}'},
+            'Stochastic': {'value': round(float(k_val), 2), 'signal': stoch_signal, 'description': f'Stochastic at {round(float(k_val), 2)}%'},
+            'ADX': {'value': round(float(adx_val), 2), 'signal': adx_signal, 'description': f'Trend strength {round(float(adx_val), 2)}'},
             'Volume': {'value': int(current_volume), 'signal': volume_signal, 'description': f'Vol {int(current_volume):,} vs Avg {int(avg_volume):,}'},
             'OBV': {'value': int(obv.iloc[-1]), 'signal': obv_signal, 'description': 'Volume trend indicator'},
-            'ATR': {'value': round(atr_percent, 2), 'signal': atr_signal, 'description': f'Volatility {round(atr_percent, 2)}%'},
-            'Williams_R': {'value': round(williams_r, 2), 'signal': williams_signal, 'description': f'Williams %R at {round(williams_r, 2)}'},
-            'CCI': {'value': round(cci_val, 2), 'signal': cci_signal, 'description': f'CCI at {round(cci_val, 2)}'},
-            'ROC': {'value': round(roc, 2), 'signal': roc_signal, 'description': f'Rate of change {round(roc, 2)}%'}
+            'ATR': {'value': round(float(atr_percent), 2), 'signal': atr_signal, 'description': f'Volatility {round(float(atr_percent), 2)}%'},
+            'Williams_R': {'value': round(float(williams_r), 2), 'signal': williams_signal, 'description': f'Williams %R at {round(float(williams_r), 2)}'},
+            'CCI': {'value': round(float(cci_val), 2), 'signal': cci_signal, 'description': f'CCI at {round(float(cci_val), 2)}'},
+            'ROC': {'value': round(float(roc), 2), 'signal': roc_signal, 'description': f'Rate of change {round(float(roc), 2)}%'}
         }
         
         buy_signals = sum(1 for ind in indicators.values() if ind['signal'] == 'BUY')
@@ -130,11 +134,11 @@ def calculate_indicators(ticker='SPY', date=None, period_before=100):
             'overall_signal': overall,
             'buy_count': buy_signals,
             'sell_count': sell_signals,
-            'price': round(price, 2)
+            'price': round(float(price), 2)
         }
         
     except Exception as e:
-        print(f"    Error calculating indicators: {str(e)[:50]}")
+        print(f"Error: {str(e)[:50]}")
         return None
 
 
