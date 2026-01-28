@@ -52,7 +52,7 @@ class GoldIndicatorCalculator:
         
         url = 'https://api.stlouisfed.org/fred/series/observations'
         params = {
-            'series_id': 'GOLDPMGBD228NLBM',  # Fixed: Gold Fixing Price PM in London
+            'series_id': 'GOLDAMGBD228NLBM',  # Gold AM fixing price
             'api_key': self.fred_key,
             'file_type': 'json',
             'observation_start': start_date,
@@ -94,61 +94,65 @@ class GoldIndicatorCalculator:
         if not self.alpha_keys:
             print("⚠️  No Alpha Vantage keys available")
             return None
+        
+        all_data = []
+        
+        for i in range(5):
+            api_key = await self.get_next_alpha_key()
+            print(f"Attempt {i+1}/5 - Using key: {api_key[:8]}...{api_key[-4:]}")
             
-        api_key = await self.get_next_alpha_key()
-        print(f"Using Alpha Vantage key: {api_key[:8]}...{api_key[-4:]}")
+            url = 'https://www.alphavantage.co/query'
+            params = {
+                'function': 'TIME_SERIES_DAILY',
+                'symbol': 'GLD',
+                'outputsize': 'compact',  # Free tier: last 100 days only
+                'apikey': api_key
+            }
+            
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, params=params, timeout=30) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            
+                            if 'Note' in data or 'Information' in data:
+                                print(f"  Rate limit/Premium required, trying next key...")
+                                await asyncio.sleep(1)
+                                continue
+                            
+                            if 'Error Message' in data:
+                                print(f"  Error: {data['Error Message']}")
+                                continue
+                            
+                            if 'Time Series (Daily)' in data:
+                                print(f"  ✓ Success! Got data")
+                                df = pd.DataFrame.from_dict(
+                                    data['Time Series (Daily)'], 
+                                    orient='index'
+                                )
+                                df.index = pd.to_datetime(df.index)
+                                df = df.rename(columns={
+                                    '1. open': 'open',
+                                    '2. high': 'high',
+                                    '3. low': 'low',
+                                    '4. close': 'close',
+                                    '5. volume': 'volume'
+                                })
+                                df = df.astype(float)
+                                df = df.sort_index()
+                                
+                                # Multiply GLD by ~10 to approximate gold price (GLD is ~1/10th gold price)
+                                df[['open', 'high', 'low', 'close']] *= 10
+                                
+                                print(f"  Processed {len(df)} days (recent data only on free tier)")
+                                return df
+                            else:
+                                print(f"  Unexpected response: {list(data.keys())}")
+            except Exception as e:
+                print(f"  Request error: {e}")
+                continue
         
-        url = 'https://www.alphavantage.co/query'
-        params = {
-            'function': 'TIME_SERIES_DAILY',
-            'symbol': 'GLD',  # SPDR Gold Trust ETF
-            'outputsize': 'full',
-            'apikey': api_key
-        }
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params, timeout=30) as response:
-                    print(f"Alpha Vantage response status: {response.status}")
-                    if response.status == 200:
-                        data = await response.json()
-                        
-                        if 'Note' in data or 'Information' in data:
-                            print(f"Alpha Vantage rate limit: {data}")
-                            return None
-                        
-                        if 'Error Message' in data:
-                            print(f"Alpha Vantage error: {data['Error Message']}")
-                            return None
-                        
-                        if 'Time Series (Daily)' in data:
-                            print(f"Alpha Vantage returned data successfully")
-                            df = pd.DataFrame.from_dict(
-                                data['Time Series (Daily)'], 
-                                orient='index'
-                            )
-                            df.index = pd.to_datetime(df.index)
-                            df = df.rename(columns={
-                                '1. open': 'open',
-                                '2. high': 'high',
-                                '3. low': 'low',
-                                '4. close': 'close',
-                                '5. volume': 'volume'
-                            })
-                            df = df.astype(float)
-                            df = df.sort_index()
-                            df = df[df.index >= start_date]
-                            print(f"Processed {len(df)} days of gold data")
-                            return df
-                        else:
-                            print(f"Unexpected Alpha Vantage response: {list(data.keys())}")
-                    else:
-                        error_text = await response.text()
-                        print(f"Alpha Vantage error: {error_text[:200]}")
-        except Exception as e:
-            print(f"Alpha Vantage error: {e}")
-            import traceback
-            traceback.print_exc()
+        print("✗ All Alpha Vantage attempts failed")
         return None
     
     def calculate_indicators(self, df):
