@@ -52,7 +52,7 @@ class GoldIndicatorCalculator:
         
         url = 'https://api.stlouisfed.org/fred/series/observations'
         params = {
-            'series_id': 'GOLDAMGBD228NLBM',
+            'series_id': 'GOLDPMGBD228NLBM',  # Fixed: Gold Fixing Price PM in London
             'api_key': self.fred_key,
             'file_type': 'json',
             'observation_start': start_date,
@@ -100,9 +100,8 @@ class GoldIndicatorCalculator:
         
         url = 'https://www.alphavantage.co/query'
         params = {
-            'function': 'FX_DAILY',
-            'from_symbol': 'XAU',
-            'to_symbol': 'USD',
+            'function': 'TIME_SERIES_DAILY',
+            'symbol': 'GLD',  # SPDR Gold Trust ETF
             'outputsize': 'full',
             'apikey': api_key
         }
@@ -118,10 +117,14 @@ class GoldIndicatorCalculator:
                             print(f"Alpha Vantage rate limit: {data}")
                             return None
                         
-                        if 'Time Series FX (Daily)' in data:
+                        if 'Error Message' in data:
+                            print(f"Alpha Vantage error: {data['Error Message']}")
+                            return None
+                        
+                        if 'Time Series (Daily)' in data:
                             print(f"Alpha Vantage returned data successfully")
                             df = pd.DataFrame.from_dict(
-                                data['Time Series FX (Daily)'], 
+                                data['Time Series (Daily)'], 
                                 orient='index'
                             )
                             df.index = pd.to_datetime(df.index)
@@ -129,10 +132,10 @@ class GoldIndicatorCalculator:
                                 '1. open': 'open',
                                 '2. high': 'high',
                                 '3. low': 'low',
-                                '4. close': 'close'
+                                '4. close': 'close',
+                                '5. volume': 'volume'
                             })
                             df = df.astype(float)
-                            df['volume'] = 1000000
                             df = df.sort_index()
                             df = df[df.index >= start_date]
                             print(f"Processed {len(df)} days of gold data")
