@@ -2,8 +2,8 @@ name: Generate Economic Calendar
 
 on:
   schedule:
-    - cron: '0 0 * * 0'  # Run weekly on Sunday
-  workflow_dispatch:  # Allow manual trigger
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
 
 jobs:
   generate:
@@ -20,7 +20,7 @@ jobs:
     
     - name: Install dependencies
       run: |
-        pip install pandas requests aiohttp
+        pip install pandas numpy aiohttp
     
     - name: Run calendar generator
       env:
@@ -30,15 +30,15 @@ jobs:
         ALPHA_VANTAGE_API_KEY_4: ${{ secrets.ALPHA_VANTAGE_API_KEY_4 }}
         ALPHA_VANTAGE_API_KEY_5: ${{ secrets.ALPHA_VANTAGE_API_KEY_5 }}
         ALPHA_VANTAGE_API_KEY_6: ${{ secrets.ALPHA_VANTAGE_API_KEY_6 }}
+        FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
       run: |
         python economic_calendar_generator.py
     
-    - name: Upload artifacts (90-day retention)
+    - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
         name: economic-calendar-data
         path: |
-          economic_calendar_full_*.json
-          economic_calendar_full_*.csv
+          gold_calendar_*.json
+          gold_calendar_*.csv
         retention-days: 90
-        compression-level: 6
