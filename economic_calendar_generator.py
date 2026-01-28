@@ -1,322 +1,309 @@
 import pandas as pd
-import requests
-from datetime import datetime, timedelta
-import json
-import os
 import asyncio
 import aiohttp
+import numpy as np
+import os
+import json
+from datetime import datetime, timedelta
 
-def get_api_keys():
-    """
-    Get API keys from environment variables
-    Supports multiple Alpha Vantage keys for rotation
-    """
-    # Get all Alpha Vantage API keys from environment
-    alpha_keys = []
-    i = 1
-    while True:
-        key = os.environ.get(f'ALPHA_VANTAGE_API_KEY_{i}')
-        if key:
-            alpha_keys.append(key)
-            i += 1
-        else:
-            break
+class GoldIndicatorCalculator:
+    def __init__(self):
+        self.alpha_keys = self._load_alpha_keys()
+        self.fred_key = os.environ.get('FRED_API_KEY', '')
+        self.current_key_index = 0
+        self.key_lock = asyncio.Lock()
+        self.gold_cache = None
     
-    # Fallback to single key if no numbered keys found
-    if not alpha_keys:
-        single_key = os.environ.get('ALPHA_VANTAGE_API_KEY')
-        if single_key:
-            alpha_keys.append(single_key)
-    
-    return alpha_keys
-
-# Global variables for API key rotation
-ALPHA_KEYS = get_api_keys()
-CURRENT_KEY_INDEX = 0
-KEY_LOCK = asyncio.Lock()
-
-async def get_next_api_key():
-    """Rotate through available API keys (thread-safe)"""
-    global CURRENT_KEY_INDEX
-    if not ALPHA_KEYS:
-        raise ValueError("No Alpha Vantage API keys found in environment variables")
-    
-    async with KEY_LOCK:
-        key = ALPHA_KEYS[CURRENT_KEY_INDEX]
-        CURRENT_KEY_INDEX = (CURRENT_KEY_INDEX + 1) % len(ALPHA_KEYS)
-        return key
-
-async def fetch_indicator(session, base_url, params, indicator_name):
-    """Fetch a single indicator from API"""
-    try:
-        async with session.get(base_url, params=params, timeout=10) as response:
-            if response.status == 200:
-                return indicator_name, await response.json()
-    except Exception as e:
-        print(f"Error fetching {indicator_name}: {str(e)}")
-    return indicator_name, None
-
-async def get_technical_indicators_api(ticker='SPY', date=None):
-    """
-    Fetch technical indicators from Alpha Vantage API asynchronously
-    """
-    try:
-        indicators = {}
-        base_url = 'https://www.alphavantage.co/query'
-        
-        async with aiohttp.ClientSession() as session:
-            # Prepare all requests
-            tasks = []
-            
-            # RSI
-            api_key = await get_next_api_key()
-            rsi_params = {
-                'function': 'RSI',
-                'symbol': ticker,
-                'interval': 'daily',
-                'time_period': 14,
-                'series_type': 'close',
-                'apikey': api_key
-            }
-            tasks.append(fetch_indicator(session, base_url, rsi_params, 'RSI'))
-            
-            # MACD
-            api_key = await get_next_api_key()
-            macd_params = {
-                'function': 'MACD',
-                'symbol': ticker,
-                'interval': 'daily',
-                'series_type': 'close',
-                'apikey': api_key
-            }
-            tasks.append(fetch_indicator(session, base_url, macd_params, 'MACD'))
-            
-            # Stochastic
-            api_key = await get_next_api_key()
-            stoch_params = {
-                'function': 'STOCH',
-                'symbol': ticker,
-                'interval': 'daily',
-                'apikey': api_key
-            }
-            tasks.append(fetch_indicator(session, base_url, stoch_params, 'STOCH'))
-            
-            # ADX
-            api_key = await get_next_api_key()
-            adx_params = {
-                'function': 'ADX',
-                'symbol': ticker,
-                'interval': 'daily',
-                'time_period': 14,
-                'apikey': api_key
-            }
-            tasks.append(fetch_indicator(session, base_url, adx_params, 'ADX'))
-            
-            # CCI
-            api_key = await get_next_api_key()
-            cci_params = {
-                'function': 'CCI',
-                'symbol': ticker,
-                'interval': 'daily',
-                'time_period': 20,
-                'apikey': api_key
-            }
-            tasks.append(fetch_indicator(session, base_url, cci_params, 'CCI'))
-            
-            # Bollinger Bands
-            api_key = await get_next_api_key()
-            bbands_params = {
-                'function': 'BBANDS',
-                'symbol': ticker,
-                'interval': 'daily',
-                'time_period': 20,
-                'series_type': 'close',
-                'apikey': api_key
-            }
-            tasks.append(fetch_indicator(session, base_url, bbands_params, 'BBANDS'))
-            
-            # SMA 20
-            api_key = await get_next_api_key()
-            sma20_params = {
-                'function': 'SMA',
-                'symbol': ticker,
-                'interval': 'daily',
-                'time_period': 20,
-                'series_type': 'close',
-                'apikey': api_key
-            }
-            tasks.append(fetch_indicator(session, base_url, sma20_params, 'SMA20'))
-            
-            # SMA 50
-            api_key = await get_next_api_key()
-            sma50_params = {
-                'function': 'SMA',
-                'symbol': ticker,
-                'interval': 'daily',
-                'time_period': 50,
-                'series_type': 'close',
-                'apikey': api_key
-            }
-            tasks.append(fetch_indicator(session, base_url, sma50_params, 'SMA50'))
-            
-            # Williams %R
-            api_key = await get_next_api_key()
-            willr_params = {
-                'function': 'WILLR',
-                'symbol': ticker,
-                'interval': 'daily',
-                'time_period': 14,
-                'apikey': api_key
-            }
-            tasks.append(fetch_indicator(session, base_url, willr_params, 'WILLR'))
-            
-            # Price Quote
-            api_key = await get_next_api_key()
-            quote_params = {
-                'function': 'GLOBAL_QUOTE',
-                'symbol': ticker,
-                'apikey': api_key
-            }
-            tasks.append(fetch_indicator(session, base_url, quote_params, 'QUOTE'))
-            
-            # Execute all requests concurrently
-            results = await asyncio.gather(*tasks)
-            
-            # Process results
-            price = 0
-            sma_20 = 0
-            sma_50 = 0
-            
-            for indicator_name, data in results:
-                if data is None:
-                    continue
-                
-                if indicator_name == 'RSI' and 'Technical Analysis: RSI' in data:
-                    latest_date = list(data['Technical Analysis: RSI'].keys())[0]
-                    rsi_val = float(data['Technical Analysis: RSI'][latest_date]['RSI'])
-                    rsi_signal = 'BUY' if rsi_val < 30 else ('SELL' if rsi_val > 70 else 'NEUTRAL')
-                    indicators['RSI'] = {
-                        'value': round(rsi_val, 2),
-                        'signal': rsi_signal,
-                        'description': f'RSI at {round(rsi_val, 2)}'
-                    }
-                
-                elif indicator_name == 'MACD' and 'Technical Analysis: MACD' in data:
-                    latest_date = list(data['Technical Analysis: MACD'].keys())[0]
-                    macd_val = float(data['Technical Analysis: MACD'][latest_date]['MACD'])
-                    signal_val = float(data['Technical Analysis: MACD'][latest_date]['MACD_Signal'])
-                    macd_signal = 'BUY' if macd_val > signal_val else 'SELL'
-                    indicators['MACD'] = {
-                        'value': round(macd_val, 4),
-                        'signal': macd_signal,
-                        'description': f'MACD {round(macd_val, 4)} vs Signal {round(signal_val, 4)}'
-                    }
-                
-                elif indicator_name == 'STOCH' and 'Technical Analysis: STOCH' in data:
-                    latest_date = list(data['Technical Analysis: STOCH'].keys())[0]
-                    k_val = float(data['Technical Analysis: STOCH'][latest_date]['SlowK'])
-                    stoch_signal = 'BUY' if k_val < 20 else ('SELL' if k_val > 80 else 'NEUTRAL')
-                    indicators['Stochastic'] = {
-                        'value': round(k_val, 2),
-                        'signal': stoch_signal,
-                        'description': f'Stochastic at {round(k_val, 2)}%'
-                    }
-                
-                elif indicator_name == 'ADX' and 'Technical Analysis: ADX' in data:
-                    latest_date = list(data['Technical Analysis: ADX'].keys())[0]
-                    adx_val = float(data['Technical Analysis: ADX'][latest_date]['ADX'])
-                    adx_signal = 'STRONG TREND' if adx_val > 25 else 'WEAK TREND'
-                    indicators['ADX'] = {
-                        'value': round(adx_val, 2),
-                        'signal': adx_signal,
-                        'description': f'Trend strength {round(adx_val, 2)}'
-                    }
-                
-                elif indicator_name == 'CCI' and 'Technical Analysis: CCI' in data:
-                    latest_date = list(data['Technical Analysis: CCI'].keys())[0]
-                    cci_val = float(data['Technical Analysis: CCI'][latest_date]['CCI'])
-                    cci_signal = 'BUY' if cci_val < -100 else ('SELL' if cci_val > 100 else 'NEUTRAL')
-                    indicators['CCI'] = {
-                        'value': round(cci_val, 2),
-                        'signal': cci_signal,
-                        'description': f'CCI at {round(cci_val, 2)}'
-                    }
-                
-                elif indicator_name == 'BBANDS' and 'Technical Analysis: BBANDS' in data:
-                    latest_date = list(data['Technical Analysis: BBANDS'].keys())[0]
-                    upper = float(data['Technical Analysis: BBANDS'][latest_date]['Real Upper Band'])
-                    lower = float(data['Technical Analysis: BBANDS'][latest_date]['Real Lower Band'])
-                    indicators['bbands_upper'] = upper
-                    indicators['bbands_lower'] = lower
-                
-                elif indicator_name == 'SMA20' and 'Technical Analysis: SMA' in data:
-                    latest_date = list(data['Technical Analysis: SMA'].keys())[0]
-                    sma_20 = float(data['Technical Analysis: SMA'][latest_date]['SMA'])
-                
-                elif indicator_name == 'SMA50' and 'Technical Analysis: SMA' in data:
-                    latest_date = list(data['Technical Analysis: SMA'].keys())[0]
-                    sma_50 = float(data['Technical Analysis: SMA'][latest_date]['SMA'])
-                
-                elif indicator_name == 'WILLR' and 'Technical Analysis: WILLR' in data:
-                    latest_date = list(data['Technical Analysis: WILLR'].keys())[0]
-                    willr_val = float(data['Technical Analysis: WILLR'][latest_date]['WILLR'])
-                    williams_signal = 'BUY' if willr_val < -80 else ('SELL' if willr_val > -20 else 'NEUTRAL')
-                    indicators['Williams_R'] = {
-                        'value': round(willr_val, 2),
-                        'signal': williams_signal,
-                        'description': f'Williams %R at {round(willr_val, 2)}'
-                    }
-                
-                elif indicator_name == 'QUOTE' and 'Global Quote' in data:
-                    if '05. price' in data['Global Quote']:
-                        price = float(data['Global Quote']['05. price'])
-            
-            # Process Bollinger Bands with price
-            if 'bbands_upper' in indicators and 'bbands_lower' in indicators:
-                upper = indicators.pop('bbands_upper')
-                lower = indicators.pop('bbands_lower')
-                bb_signal = 'SELL' if price > upper else ('BUY' if price < lower else 'NEUTRAL')
-                indicators['Bollinger'] = {
-                    'value': f'{round(lower, 2)}-{round(upper, 2)}',
-                    'signal': bb_signal,
-                    'description': f'Price at {round(price, 2)}'
-                }
-            
-            # Process MA Cross
-            if sma_20 and sma_50:
-                ma_signal = 'BUY' if (price > sma_20 and sma_20 > sma_50) else ('SELL' if (price < sma_20 and sma_20 < sma_50) else 'NEUTRAL')
-                indicators['MA_Cross'] = {
-                    'value': f'{round(sma_20, 2)}/{round(sma_50, 2)}',
-                    'signal': ma_signal,
-                    'description': f'Price {round(price, 2)} vs SMA20 {round(sma_20, 2)}'
-                }
-            
-            # Calculate overall signal
-            buy_signals = sum(1 for ind in indicators.values() if isinstance(ind, dict) and ind.get('signal') == 'BUY')
-            sell_signals = sum(1 for ind in indicators.values() if isinstance(ind, dict) and ind.get('signal') == 'SELL')
-            total_signals = buy_signals + sell_signals
-            
-            if total_signals > 0:
-                overall = 'BUY' if buy_signals > sell_signals else ('SELL' if sell_signals > buy_signals else 'NEUTRAL')
+    def _load_alpha_keys(self):
+        keys = []
+        i = 1
+        while True:
+            key = os.environ.get(f'ALPHA_VANTAGE_API_KEY_{i}')
+            if key:
+                keys.append(key)
+                i += 1
             else:
-                overall = 'NEUTRAL'
+                break
+        
+        if not keys:
+            single_key = os.environ.get('ALPHA_VANTAGE_API_KEY')
+            if single_key:
+                keys.append(single_key)
+        
+        if not keys:
+            print("⚠️  No Alpha Vantage API keys found in environment variables")
+            print("   Set ALPHA_VANTAGE_API_KEY or ALPHA_VANTAGE_API_KEY_1, _2, etc.")
+        
+        return keys
+    
+    async def get_next_alpha_key(self):
+        async with self.key_lock:
+            key = self.alpha_keys[self.current_key_index]
+            self.current_key_index = (self.current_key_index + 1) % len(self.alpha_keys)
+            return key
+    
+    async def fetch_fred_gold_data(self, start_date='2001-01-01', end_date=None):
+        if end_date is None:
+            end_date = datetime.now().strftime('%Y-%m-%d')
+        
+        url = 'https://api.stlouisfed.org/fred/series/observations'
+        params = {
+            'series_id': 'GOLDAMGBD228NLBM',
+            'api_key': self.fred_key,
+            'file_type': 'json',
+            'observation_start': start_date,
+            'observation_end': end_date
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, timeout=30) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        observations = data.get('observations', [])
+                        
+                        df = pd.DataFrame(observations)
+                        df['date'] = pd.to_datetime(df['date'])
+                        df['value'] = pd.to_numeric(df['value'], errors='coerce')
+                        df = df.dropna(subset=['value'])
+                        df = df.set_index('date')
+                        df = df.rename(columns={'value': 'close'})
+                        
+                        df['open'] = df['close']
+                        df['high'] = df['close'] * 1.002
+                        df['low'] = df['close'] * 0.998
+                        df['volume'] = 1000000
+                        
+                        return df[['open', 'high', 'low', 'close', 'volume']]
+        except Exception as e:
+            print(f"FRED error: {e}")
+        return None
+    
+    async def fetch_alpha_vantage_gold(self, start_date='2001-01-01'):
+        api_key = await self.get_next_alpha_key()
+        url = 'https://www.alphavantage.co/query'
+        params = {
+            'function': 'FX_DAILY',
+            'from_symbol': 'XAU',
+            'to_symbol': 'USD',
+            'outputsize': 'full',
+            'apikey': api_key
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, timeout=30) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        if 'Time Series FX (Daily)' in data:
+                            df = pd.DataFrame.from_dict(
+                                data['Time Series FX (Daily)'], 
+                                orient='index'
+                            )
+                            df.index = pd.to_datetime(df.index)
+                            df = df.rename(columns={
+                                '1. open': 'open',
+                                '2. high': 'high',
+                                '3. low': 'low',
+                                '4. close': 'close'
+                            })
+                            df = df.astype(float)
+                            df['volume'] = 1000000
+                            df = df.sort_index()
+                            df = df[df.index >= start_date]
+                            return df
+        except Exception as e:
+            print(f"Alpha Vantage error: {e}")
+        return None
+    
+    def calculate_indicators(self, df):
+        df = df.copy()
+        
+        delta = df['close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        df['rsi'] = 100 - (100 / (1 + rs))
+        
+        exp1 = df['close'].ewm(span=12, adjust=False).mean()
+        exp2 = df['close'].ewm(span=26, adjust=False).mean()
+        df['macd'] = exp1 - exp2
+        df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
+        df['macd_hist'] = df['macd'] - df['macd_signal']
+        
+        low_14 = df['low'].rolling(window=14).min()
+        high_14 = df['high'].rolling(window=14).max()
+        df['stoch_k'] = 100 * ((df['close'] - low_14) / (high_14 - low_14))
+        df['stoch_d'] = df['stoch_k'].rolling(window=3).mean()
+        
+        df['bb_middle'] = df['close'].rolling(window=20).mean()
+        bb_std = df['close'].rolling(window=20).std()
+        df['bb_upper'] = df['bb_middle'] + (bb_std * 2)
+        df['bb_lower'] = df['bb_middle'] - (bb_std * 2)
+        
+        df['sma_20'] = df['close'].rolling(window=20).mean()
+        df['sma_50'] = df['close'].rolling(window=50).mean()
+        df['sma_200'] = df['close'].rolling(window=200).mean()
+        
+        df['tr'] = np.maximum(
+            df['high'] - df['low'],
+            np.maximum(
+                abs(df['high'] - df['close'].shift(1)),
+                abs(df['low'] - df['close'].shift(1))
+            )
+        )
+        df['atr'] = df['tr'].rolling(window=14).mean()
+        
+        df['+dm'] = np.where(
+            (df['high'] - df['high'].shift(1)) > (df['low'].shift(1) - df['low']),
+            np.maximum(df['high'] - df['high'].shift(1), 0),
+            0
+        )
+        df['-dm'] = np.where(
+            (df['low'].shift(1) - df['low']) > (df['high'] - df['high'].shift(1)),
+            np.maximum(df['low'].shift(1) - df['low'], 0),
+            0
+        )
+        
+        df['+di'] = 100 * (df['+dm'].rolling(window=14).mean() / df['atr'])
+        df['-di'] = 100 * (df['-dm'].rolling(window=14).mean() / df['atr'])
+        df['dx'] = 100 * abs(df['+di'] - df['-di']) / (df['+di'] + df['-di'])
+        df['adx'] = df['dx'].rolling(window=14).mean()
+        
+        tp = (df['high'] + df['low'] + df['close']) / 3
+        sma_tp = tp.rolling(window=20).mean()
+        mad = tp.rolling(window=20).apply(lambda x: np.abs(x - x.mean()).mean())
+        df['cci'] = (tp - sma_tp) / (0.015 * mad)
+        
+        high_14 = df['high'].rolling(window=14).max()
+        low_14 = df['low'].rolling(window=14).min()
+        df['willr'] = -100 * ((high_14 - df['close']) / (high_14 - low_14))
+        
+        return df
+    
+    def get_signals_for_date(self, df, date):
+        try:
+            if isinstance(date, str):
+                date = pd.to_datetime(date)
             
-            return {
-                'indicators': {k: v for k, v in indicators.items() if isinstance(v, dict)},
-                'overall_signal': overall,
-                'buy_count': buy_signals,
-                'sell_count': sell_signals,
-                'price': round(price, 2)
+            df_sorted = df.sort_index()
+            if date not in df_sorted.index:
+                idx = df_sorted.index.searchsorted(date)
+                if idx >= len(df_sorted):
+                    idx = len(df_sorted) - 1
+                row = df_sorted.iloc[idx]
+            else:
+                row = df_sorted.loc[date]
+            
+            return self._format_indicators(row)
+        except Exception as e:
+            print(f"Error getting signals: {e}")
+            return None
+    
+    def _format_indicators(self, row):
+        indicators = {}
+        price = row['close']
+        
+        rsi_val = row['rsi']
+        if not pd.isna(rsi_val):
+            indicators['RSI'] = {
+                'value': round(rsi_val, 2),
+                'signal': 'BUY' if rsi_val < 30 else ('SELL' if rsi_val > 70 else 'NEUTRAL'),
+                'description': f'RSI at {round(rsi_val, 2)}'
             }
         
-    except Exception as e:
-        print(f"API Error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return None
+        macd_val = row['macd']
+        signal_val = row['macd_signal']
+        if not pd.isna(macd_val) and not pd.isna(signal_val):
+            indicators['MACD'] = {
+                'value': round(macd_val, 4),
+                'signal': 'BUY' if macd_val > signal_val else 'SELL',
+                'description': f'MACD {round(macd_val, 4)} vs Signal {round(signal_val, 4)}'
+            }
+        
+        k_val = row['stoch_k']
+        if not pd.isna(k_val):
+            indicators['Stochastic'] = {
+                'value': round(k_val, 2),
+                'signal': 'BUY' if k_val < 20 else ('SELL' if k_val > 80 else 'NEUTRAL'),
+                'description': f'Stochastic at {round(k_val, 2)}%'
+            }
+        
+        bb_upper = row['bb_upper']
+        bb_lower = row['bb_lower']
+        if not pd.isna(bb_upper) and not pd.isna(bb_lower):
+            indicators['Bollinger'] = {
+                'value': f'{round(bb_lower, 2)}-{round(bb_upper, 2)}',
+                'signal': 'SELL' if price > bb_upper else ('BUY' if price < bb_lower else 'NEUTRAL'),
+                'description': f'Price at {round(price, 2)}'
+            }
+        
+        sma_20 = row['sma_20']
+        sma_50 = row['sma_50']
+        if not pd.isna(sma_20) and not pd.isna(sma_50):
+            indicators['MA_Cross'] = {
+                'value': f'{round(sma_20, 2)}/{round(sma_50, 2)}',
+                'signal': 'BUY' if (price > sma_20 and sma_20 > sma_50) else ('SELL' if (price < sma_20 and sma_20 < sma_50) else 'NEUTRAL'),
+                'description': f'Price {round(price, 2)} vs SMA20 {round(sma_20, 2)}'
+            }
+        
+        adx_val = row['adx']
+        if not pd.isna(adx_val):
+            indicators['ADX'] = {
+                'value': round(adx_val, 2),
+                'signal': 'STRONG TREND' if adx_val > 25 else 'WEAK TREND',
+                'description': f'Trend strength {round(adx_val, 2)}'
+            }
+        
+        cci_val = row['cci']
+        if not pd.isna(cci_val):
+            indicators['CCI'] = {
+                'value': round(cci_val, 2),
+                'signal': 'BUY' if cci_val < -100 else ('SELL' if cci_val > 100 else 'NEUTRAL'),
+                'description': f'CCI at {round(cci_val, 2)}'
+            }
+        
+        willr_val = row['willr']
+        if not pd.isna(willr_val):
+            indicators['Williams_R'] = {
+                'value': round(willr_val, 2),
+                'signal': 'BUY' if willr_val < -80 else ('SELL' if willr_val > -20 else 'NEUTRAL'),
+                'description': f'Williams %R at {round(willr_val, 2)}'
+            }
+        
+        buy_signals = sum(1 for ind in indicators.values() if ind.get('signal') == 'BUY')
+        sell_signals = sum(1 for ind in indicators.values() if ind.get('signal') == 'SELL')
+        
+        overall = 'BUY' if buy_signals > sell_signals else ('SELL' if sell_signals > buy_signals else 'NEUTRAL')
+        
+        return {
+            'indicators': indicators,
+            'overall_signal': overall,
+            'buy_count': buy_signals,
+            'sell_count': sell_signals,
+            'price': round(price, 2)
+        }
+    
+    async def load_and_cache_gold_data(self, start_year, end_year):
+        start_date = f'{start_year}-01-01'
+        end_date = f'{end_year}-12-31'
+        
+        print("Fetching gold data from FRED...")
+        df = await self.fetch_fred_gold_data(start_date, end_date)
+        
+        if df is None and self.alpha_keys:
+            print("FRED failed, trying Alpha Vantage...")
+            df = await self.fetch_alpha_vantage_gold(start_date)
+        
+        if df is not None:
+            print(f"Got {len(df)} days of gold data")
+            print("Calculating indicators...")
+            self.gold_cache = self.calculate_indicators(df)
+            return True
+        return False
+
 
 async def get_gdelt_news_async(session, event_name, event_date, num_articles=2):
-    """Fetch news articles from GDELT API asynchronously"""
     keywords_map = {
         'Non-Farm Payrolls': 'nonfarm payrolls jobs report economy',
         'Consumer Price Index': 'CPI inflation consumer prices',
@@ -367,8 +354,8 @@ async def get_gdelt_news_async(session, event_name, event_date, num_articles=2):
         pass
     return []
 
-async def process_event(session, event_date, event_name, ticker, fetch_indicators, fetch_news):
-    """Process a single event asynchronously"""
+
+async def process_event(session, event_date, event_name, gold_calc, fetch_news):
     event = {
         'date': event_date,
         'time': '08:30',
@@ -379,40 +366,36 @@ async def process_event(session, event_date, event_name, ticker, fetch_indicator
         'news': []
     }
     
-    tasks = []
-    
-    if fetch_indicators:
-        tasks.append(get_technical_indicators_api(ticker, event_date))
-    else:
-        tasks.append(asyncio.sleep(0))
+    if gold_calc and gold_calc.gold_cache is not None:
+        event['indicators'] = gold_calc.get_signals_for_date(gold_calc.gold_cache, event_date)
     
     if fetch_news:
-        tasks.append(get_gdelt_news_async(session, event_name, event_date, 2))
-    else:
-        tasks.append(asyncio.sleep(0))
-    
-    results = await asyncio.gather(*tasks)
-    
-    if fetch_indicators and results[0]:
-        event['indicators'] = results[0]
-    
-    if fetch_news and results[1]:
-        event['news'] = results[1]
+        event['news'] = await get_gdelt_news_async(session, event_name, event_date, 2)
     
     return event
 
-async def create_calendar_with_indicators_and_news(start_year=2024, end_year=2025, 
-                                                   fetch_news=True, fetch_indicators=True,
-                                                   ticker='SPY'):
-    """
-    Create comprehensive economic calendar with indicators and news (async version)
-    Uses Alpha Vantage API with automatic key rotation
-    """
+
+def get_nth_weekday(year, month, n, weekday):
+    first_day = datetime(year, month, 1)
+    first_weekday = first_day.weekday()
+    offset = (weekday - first_weekday) % 7
+    target_date = first_day + timedelta(days=offset + (n - 1) * 7)
+    if target_date.month == month:
+        return target_date
+    return None
+
+
+async def create_calendar_with_gold_indicators(start_year=2024, end_year=2025, fetch_news=True):
     print("=" * 80)
-    print(f"ECONOMIC CALENDAR + TECHNICAL INDICATORS + NEWS ({start_year}-{end_year})")
-    print(f"Ticker: {ticker}")
-    print(f"API Keys Available: {len(ALPHA_KEYS)}")
+    print(f"ECONOMIC CALENDAR + GOLD TECHNICAL INDICATORS + NEWS ({start_year}-{end_year})")
     print("=" * 80 + "\n")
+    
+    gold_calc = GoldIndicatorCalculator()
+    success = await gold_calc.load_and_cache_gold_data(start_year, end_year)
+    
+    if not success:
+        print("⚠️  Could not load gold data, continuing without indicators")
+        gold_calc = None
     
     all_events_tasks = []
     
@@ -421,41 +404,35 @@ async def create_calendar_with_indicators_and_news(start_year=2024, end_year=202
             print(f"Preparing {year}...", flush=True)
             
             for month in range(1, 13):
-                # NFP
                 first_friday = get_nth_weekday(year, month, 1, 4)
                 if first_friday:
                     event_date = first_friday.strftime('%Y-%m-%d')
                     all_events_tasks.append(
                         process_event(session, event_date, 'Non-Farm Payrolls (NFP)', 
-                                    ticker, fetch_indicators, fetch_news)
+                                    gold_calc, fetch_news)
                     )
                 
-                # CPI
                 cpi_date = datetime(year, month, 13)
                 while cpi_date.weekday() >= 5:
                     cpi_date += timedelta(days=1)
                 event_date = cpi_date.strftime('%Y-%m-%d')
                 all_events_tasks.append(
                     process_event(session, event_date, 'Consumer Price Index (CPI)', 
-                                ticker, fetch_indicators, fetch_news)
+                                gold_calc, fetch_news)
                 )
         
-        print(f"\nProcessing {len(all_events_tasks)} events asynchronously...")
+        print(f"\nProcessing {len(all_events_tasks)} events...")
         events = await asyncio.gather(*all_events_tasks)
     
-    # Sort by date
     events = sorted(events, key=lambda x: x['date'])
     
-    # Count successes
     events_with_indicators = sum(1 for e in events if e.get('indicators'))
     events_with_news = sum(1 for e in events if e.get('news'))
     
-    # Save JSON
-    json_filename = f'economic_calendar_full_{start_year}_{end_year}.json'
+    json_filename = f'gold_calendar_{start_year}_{end_year}.json'
     with open(json_filename, 'w', encoding='utf-8') as f:
         json.dump(events, f, indent=2, ensure_ascii=False)
     
-    # Save CSV
     csv_data = []
     for event in events:
         row = {
@@ -466,7 +443,7 @@ async def create_calendar_with_indicators_and_news(start_year=2024, end_year=202
         }
         
         if event.get('indicators'):
-            row['price'] = event['indicators'].get('price', '')
+            row['gold_price'] = event['indicators'].get('price', '')
             row['overall_signal'] = event['indicators'].get('overall_signal', '')
             row['buy_signals'] = event['indicators'].get('buy_count', 0)
             row['sell_signals'] = event['indicators'].get('sell_count', 0)
@@ -483,29 +460,28 @@ async def create_calendar_with_indicators_and_news(start_year=2024, end_year=202
         csv_data.append(row)
     
     df = pd.DataFrame(csv_data)
-    csv_filename = f'economic_calendar_full_{start_year}_{end_year}.csv'
+    csv_filename = f'gold_calendar_{start_year}_{end_year}.csv'
     df.to_csv(csv_filename, index=False)
     
     print("\n" + "=" * 80)
     print(f"✓ Total events: {len(events)}")
-    print(f"✓ Events with indicators: {events_with_indicators}")
+    print(f"✓ Events with gold indicators: {events_with_indicators}")
     print(f"✓ Events with news: {events_with_news}")
     print(f"✓ JSON: {json_filename}")
     print(f"✓ CSV: {csv_filename}")
     print("=" * 80)
     
-    # Show sample
     print("\nSAMPLE EVENT:")
     print("=" * 80)
     for event in events:
         if event.get('indicators') and event.get('news'):
             print(f"\n📅 {event['date']} - {event['event']}")
-            print(f"💰 Price: ${event['indicators']['price']}")
+            print(f"🥇 Gold Price: ${event['indicators']['price']}")
             print(f"📊 Overall Signal: {event['indicators']['overall_signal']}")
             print(f"   BUY signals: {event['indicators']['buy_count']}")
             print(f"   SELL signals: {event['indicators']['sell_count']}")
             
-            print("\n📈 Indicators:")
+            print("\n📈 Gold Indicators:")
             for name, data in event['indicators']['indicators'].items():
                 print(f"   {name}: {data['signal']} ({data['description']})")
             
@@ -520,26 +496,5 @@ async def create_calendar_with_indicators_and_news(start_year=2024, end_year=202
     return events
 
 
-def get_nth_weekday(year, month, n, weekday):
-    """Get the nth occurrence of a weekday in a month"""
-    first_day = datetime(year, month, 1)
-    first_weekday = first_day.weekday()
-    offset = (weekday - first_weekday) % 7
-    target_date = first_day + timedelta(days=offset + (n - 1) * 7)
-    if target_date.month == month:
-        return target_date
-    return None
-
-
 if __name__ == "__main__":
-    print("\n" + "=" * 80)
-    print("ECONOMIC CALENDAR + TECHNICAL INDICATORS + NEWS")
-    print("=" * 80)
-    print("\nThis fetches data from APIs (Async):")
-    print("• Technical indicators from Alpha Vantage")
-    print("• News articles from GDELT")
-    print(f"\nAPI Keys detected: {len(ALPHA_KEYS)}")
-    print("=" * 80 + "\n")
-    
-    # Run with default settings (2024-2025)
-    asyncio.run(create_calendar_with_indicators_and_news(2010, 2025, True, True, 'SPY'))
+    asyncio.run(create_calendar_with_gold_indicators(2024, 2025, True))
