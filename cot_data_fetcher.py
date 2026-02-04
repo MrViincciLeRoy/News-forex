@@ -7,7 +7,7 @@ import os
 
 class COTDataFetcher:
     def __init__(self):
-        self.base_url = "https://www.cftc.gov/dea/newcot"
+        self.base_url = "https://www.cftc.gov/files/dea/history"
         
         self.cftc_codes = {
             'EUR': '099741',
@@ -62,18 +62,24 @@ class COTDataFetcher:
     
     def fetch_cot_data(self, year, report_type='financial'):
         if report_type == 'financial':
-            filename = f"deacot{year}.txt"
+            filename = f"deacot{year}.zip"
         else:
-            filename = f"deacom{year}.txt"
+            filename = f"deacom{year}.zip"
         
         url = f"{self.base_url}/{filename}"
         
         try:
+            import zipfile
+            
             response = requests.get(url, timeout=30)
             if response.status_code == 200:
-                df = pd.read_csv(io.StringIO(response.text))
-                df['Report_Date_as_YYYY-MM-DD'] = pd.to_datetime(df['Report_Date_as_YYYY-MM-DD'])
-                return df
+                with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+                    txt_files = [f for f in z.namelist() if f.endswith('.txt')]
+                    if txt_files:
+                        with z.open(txt_files[0]) as f:
+                            df = pd.read_csv(f)
+                            df['Report_Date_as_YYYY-MM-DD'] = pd.to_datetime(df['Report_Date_as_YYYY-MM-DD'])
+                            return df
             else:
                 print(f"Failed to fetch {year} data: {response.status_code}")
                 return None
