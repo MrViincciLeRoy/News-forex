@@ -188,6 +188,8 @@ class SymbolIndicatorCalculator:
         if isinstance(date, str):
             date = pd.to_datetime(date)
         
+        date = date.tz_localize(None) if date.tz is not None else date
+        
         start_date = (date - timedelta(days=lookback_days)).strftime('%Y-%m-%d')
         end_date = (date + timedelta(days=1)).strftime('%Y-%m-%d')
         
@@ -203,6 +205,8 @@ class SymbolIndicatorCalculator:
             self.cache[cache_key] = df
         
         df_sorted = df.sort_index()
+        if df_sorted.index.tz is not None:
+            df_sorted.index = df_sorted.index.tz_localize(None)
         
         if date not in df_sorted.index:
             idx = df_sorted.index.searchsorted(date)
@@ -321,4 +325,4 @@ if __name__ == "__main__":
             for name, data in result['indicators'].items():
                 print(f"  {name:15} {data['signal']:12} - {data['description']}")
         else:
-            print(f"No data available for {symbol}")
+            print(f"No data available for {symbol}") 
