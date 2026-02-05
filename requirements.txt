@@ -9,3 +9,7 @@ scipy
 psutil
 feedparser
 bs4
+matplotlib
+seaborn
+scipy
+sci-learn
