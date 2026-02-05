@@ -1,0 +1,107 @@
+name: Test Comprehensive Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Analysis date (YYYY-MM-DD)'
+        required: true
+        default: '2024-11-01'
+      event_name:
+        description: 'Event name (e.g., Non-Farm Payrolls)'
+        required: false
+        default: 'Non-Farm Payrolls'
+      symbols:
+        description: 'Comma-separated symbols (leave empty for auto-detect)'
+        required: false
+        default: ''
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'comprehensive_pipeline.py'
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  run-comprehensive-analysis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        pip install pandas numpy matplotlib seaborn
+        pip install yfinance requests aiohttp
+        pip install transformers torch sentence-transformers
+        pip install -r requirements.txt || true
+    
+    - name: Run comprehensive pipeline (default test)
+      if: github.event_name != 'workflow_dispatch'
+      run: |
+        python comprehensive_pipeline.py
+    
+    - name: Run comprehensive pipeline (custom event)
+      if: github.event_name == 'workflow_dispatch'
+      env:
+        ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
+        FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      run: |
+        python -c "
+        from comprehensive_pipeline import ComprehensiveAnalysisPipeline
+        
+        pipeline = ComprehensiveAnalysisPipeline(output_dir='pipeline_output')
+        
+        symbols = '${{ github.event.inputs.symbols }}'.split(',') if '${{ github.event.inputs.symbols }}' else None
+        symbols = [s.strip() for s in symbols] if symbols else None
+        
+        results = pipeline.analyze(
+            date='${{ github.event.inputs.date }}',
+            event_name='${{ github.event.inputs.event_name }}' or None,
+            symbols=symbols,
+            use_hf_methods=True,
+            generate_visuals=True
+        )
+        
+        markdown = pipeline.generate_markdown_report(results)
+        
+        with open('pipeline_output/comprehensive_report.md', 'w') as f:
+            f.write(markdown)
+        
+        print('✓ Analysis complete')
+        "
+    
+    - name: Upload analysis results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: comprehensive-analysis-${{ github.event.inputs.date || '2024-11-01' }}
+        path: |
+          test_pipeline_output/
+          pipeline_output/
+        retention-days: 90
+    
+    - name: Display summary
+      if: success()
+      run: |
+        echo "="
+        echo "COMPREHENSIVE ANALYSIS COMPLETE"
+        echo "="
+        echo ""
+        echo "Results:"
+        ls -lh test_pipeline_output/*.json 2>/dev/null || ls -lh pipeline_output/*.json 2>/dev/null || echo "No JSON files"
+        echo ""
+        echo "Markdown Reports:"
+        ls -lh test_pipeline_output/*.md 2>/dev/null || ls -lh pipeline_output/*.md 2>/dev/null || echo "No MD files"
+        echo ""
+        echo "Visualizations:"
+        find test_pipeline_output/visualizations -name "*.png" 2>/dev/null | wc -l || echo "0"
+        find pipeline_output/visualizations -name "*.png" 2>/dev/null | wc -l || echo "0"
+        echo " image(s) generated"
