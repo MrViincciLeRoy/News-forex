@@ -29,7 +29,10 @@ jobs:
       run: |
         pip install -r requirements.txt
     
+        
     - name: Test news fetcher
+      env:
+        SERP_API_KEY_1: ${{ secrets.SERP_API_KEY_1 }}
       run: |
         python news_fetcher.py
     
