@@ -1,6 +1,7 @@
 """
 AI-Powered Comprehensive Report Generator using Groq API
-Uses Qwen3-32B model to analyze pipeline results and generate detailed HTML reports
+Uses Qwen2.5-32B model to analyze pipeline results and generate detailed HTML reports
+FIXED: Corrected model name format for Groq API
 """
 
 import json
@@ -23,7 +24,8 @@ class GroqAIReportGenerator:
             raise ValueError("GROQ_API_KEY not found. Set environment variable or pass as parameter.")
         
         self.api_url = "https://api.groq.com/v1/chat/completions"
-        self.model = "qwen/qwen3-32b"
+        # FIXED: Use correct Groq API model name format
+        self.model = "qwen-2.5-32b"  # Changed from "qwen/qwen3-32b"
         
         self.max_tokens_per_request = 8000
         self.requests_per_minute = 30
@@ -557,7 +559,7 @@ Generate ONLY the HTML content for the executive summary section."""
             </p>
             <p class="mb-0">
                 <span class="ai-badge">
-                    <i class="bi bi-robot"></i> AI-Powered Report by Qwen3-32B
+                    <i class="bi bi-robot"></i> AI-Powered Report by Qwen2.5-32B
                 </span>
             </p>
             <p class="mt-2 mb-0">
