@@ -7,7 +7,20 @@ import yfinance as yf
 
 class EconomicIndicatorIntegration:
     def __init__(self):
-        self.fred_key = os.environ.get('FRED_API_KEY', '')
+        # **FIX: Check for FRED_API_KEY_1 through FRED_API_KEY_6 first**
+        self.fred_key = None
+        
+        # Try numbered keys first (FRED_API_KEY_1 through FRED_API_KEY_6)
+        for i in range(1, 7):
+            key = os.environ.get(f'FRED_API_KEY_{i}', '')
+            if key:
+                self.fred_key = key
+                break
+        
+        # Fallback to single FRED_API_KEY for backward compatibility
+        if not self.fred_key:
+            self.fred_key = os.environ.get('FRED_API_KEY', '')
+        
         self.cache = {}
         
         self.indicators = {
@@ -31,7 +44,7 @@ class EconomicIndicatorIntegration:
     
     def fetch_fred_data(self, series_id, start_date=None, end_date=None):
         if not self.fred_key:
-            print("FRED_API_KEY not set")
+            print("FRED_API_KEY not set (checked FRED_API_KEY_1-6 and FRED_API_KEY)")
             return None
         
         if end_date is None:
@@ -126,7 +139,6 @@ class EconomicIndicatorIntegration:
         elif isinstance(date, str):
             date = pd.to_datetime(date)
         
-        # Increase buffer to 120 days to ensure we get enough monthly data
         start_date = date - timedelta(days=lookback_months * 30 + 120)
         end_date = date
         
@@ -140,18 +152,15 @@ class EconomicIndicatorIntegration:
             print(f"Insufficient data: CPI has {len(cpi)} rows, Core CPI has {len(core_cpi)} rows (need 14+)")
             return None
         
-        # Calculate year-over-year change (use available data if less than 13 months)
         yoy_index = min(13, len(cpi) - 1)
         cpi_yoy = ((cpi['value'].iloc[-1] - cpi['value'].iloc[-yoy_index]) / cpi['value'].iloc[-yoy_index]) * 100
         core_cpi_yoy = ((core_cpi['value'].iloc[-1] - core_cpi['value'].iloc[-yoy_index]) / core_cpi['value'].iloc[-yoy_index]) * 100
         
-        # Calculate month-over-month change
         if len(cpi) >= 2:
             cpi_mom = ((cpi['value'].iloc[-1] - cpi['value'].iloc[-2]) / cpi['value'].iloc[-2]) * 100
         else:
             cpi_mom = 0
         
-        # Calculate trend using recent data (use available data if less than 6 months)
         trend_window = min(6, len(cpi))
         trend_recent = cpi['value'].iloc[-trend_window:].pct_change().mean() * 100
         
@@ -217,7 +226,6 @@ class EconomicIndicatorIntegration:
         if len(indicator_data) == 0 or len(asset_data) == 0:
             return None
         
-        # Ensure both indexes are timezone-naive for compatibility
         if hasattr(asset_data.index, 'tz') and asset_data.index.tz is not None:
             asset_data.index = asset_data.index.tz_localize(None)
         
@@ -240,11 +248,6 @@ class EconomicIndicatorIntegration:
         }
     
     def get_economic_snapshot(self, date=None):
-        """Get economic snapshot for a specific date (default: current date)
-        
-        Args:
-            date: str in format 'YYYY-MM-DD' or datetime object or None for current date
-        """
         if date is None:
             date = datetime.now()
         elif isinstance(date, str):
@@ -280,7 +283,6 @@ if __name__ == "__main__":
     
     econ = EconomicIndicatorIntegration()
     
-    # Allow date to be passed as command line argument
     target_date = None
     if len(sys.argv) > 1:
         try:
@@ -292,6 +294,14 @@ if __name__ == "__main__":
     
     print("="*80)
     print(f"ECONOMIC INDICATORS SNAPSHOT{' - ' + target_date if target_date else ''}")
+    print("="*80)
+    
+    # Show which FRED key is being used
+    if econ.fred_key:
+        print(f"FRED API Key: Configured ({len(econ.fred_key)} chars)")
+    else:
+        print("FRED API Key: NOT CONFIGURED")
+        print("Set FRED_API_KEY_1 (or FRED_API_KEY) in environment")
     print("="*80)
     
     snapshot = econ.get_economic_snapshot(target_date)
@@ -340,7 +350,6 @@ if __name__ == "__main__":
         else:
             print(f"\nCorrelation data unavailable")
     
-    # Example: Query multiple dates
     if len(sys.argv) <= 1:
         print("\n" + "="*80)
         print("TIP: You can query specific dates by running:")
