@@ -1,7 +1,7 @@
 """
-HF Analytics Method 10: Causal Inference & Explanations
+HF Analytics Method 10: Causal Inference & Explanations - FIXED
 Generate natural language explanations for market behavior
-Models: google/flan-t5-base, facebook/opt-1.3b, microsoft/phi-2
+Models: google/flan-t5-base (using correct text2text-generation task)
 Enhances: All analysis modules with human-readable insights
 """
 
@@ -25,14 +25,15 @@ class HFCausalExplainer:
         print(f"Initializing HF Causal Explainer: {model_name}")
     
     def load_model(self):
-        """Load text generation model for explanations"""
+        """Load text2text generation model for explanations (FIXED for T5)"""
         try:
             from transformers import pipeline
             
             print(f"Loading model: {self.model_name}")
-            # Use 'text-generation' instead of 'text2text-generation'
+            
+            # ✅ FIXED: Use 'text2text-generation' for T5 models
             self.pipeline = pipeline(
-                "text-generation",
+                "text2text-generation",  # Changed from "text-generation"
                 model=self.model_name,
                 max_length=200
             )
@@ -62,13 +63,11 @@ class HFCausalExplainer:
             relationship = "moderately inversely correlated"
         
         if self.pipeline:
-            prompt = f"Explain why {asset1} and {asset2} are {relationship} in financial markets."
+            # T5 works better with task prefixes
+            prompt = f"Explain: Why are {asset1} and {asset2} {relationship} in financial markets?"
             
             try:
-                result = self.pipeline(prompt, max_new_tokens=100)[0]['generated_text']
-                # Remove the original prompt from the result if it's included
-                if result.startswith(prompt):
-                    result = result[len(prompt):].strip()
+                result = self.pipeline(prompt, max_length=150)[0]['generated_text']
                 return result if result else self._generate_correlation_explanation(asset1, asset2, correlation)
             except:
                 pass
@@ -104,12 +103,10 @@ class HFCausalExplainer:
         """Explain why an event affects specific symbols"""
         if self.pipeline:
             symbols_str = ', '.join(affected_symbols[:5])
-            prompt = f"Explain how {event} affects {symbols_str} in financial markets."
+            prompt = f"Explain: How does {event} affect {symbols_str} in financial markets?"
             
             try:
-                result = self.pipeline(prompt, max_new_tokens=100)[0]['generated_text']
-                if result.startswith(prompt):
-                    result = result[len(prompt):].strip()
+                result = self.pipeline(prompt, max_length=150)[0]['generated_text']
                 return result if result else self._generate_event_explanation(event, affected_symbols)
             except:
                 pass
@@ -141,12 +138,10 @@ class HFCausalExplainer:
         worst_month = pattern.get('worst_month', 'unknown')
         
         if self.pipeline:
-            prompt = f"Explain why {asset} typically performs best in {best_month} and worst in {worst_month}."
+            prompt = f"Explain: Why does {asset} typically perform best in {best_month} and worst in {worst_month}?"
             
             try:
-                result = self.pipeline(prompt, max_new_tokens=100)[0]['generated_text']
-                if result.startswith(prompt):
-                    result = result[len(prompt):].strip()
+                result = self.pipeline(prompt, max_length=150)[0]['generated_text']
                 return result if result else self._generate_seasonality_explanation(asset, best_month, worst_month)
             except:
                 pass
@@ -172,12 +167,10 @@ class HFCausalExplainer:
         severity = anomaly_data.get('severity', 'normal')
         
         if self.pipeline:
-            prompt = f"Explain what caused a {severity} {anomaly_type} anomaly in the market."
+            prompt = f"Explain: What causes a {severity} {anomaly_type} anomaly in the market?"
             
             try:
-                result = self.pipeline(prompt, max_new_tokens=100)[0]['generated_text']
-                if result.startswith(prompt):
-                    result = result[len(prompt):].strip()
+                result = self.pipeline(prompt, max_length=150)[0]['generated_text']
                 return result if result else self._get_anomaly_explanation(anomaly_type)
             except:
                 pass
@@ -250,7 +243,7 @@ class HFCausalExplainer:
 
 if __name__ == "__main__":
     print("="*80)
-    print("HF METHOD 10: CAUSAL INFERENCE & EXPLANATIONS")
+    print("HF METHOD 10: CAUSAL INFERENCE & EXPLANATIONS (FIXED)")
     print("="*80)
     
     explainer = HFCausalExplainer()
