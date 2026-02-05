@@ -53,16 +53,22 @@ class VolumeAnalyzer:
         df['typical_price'] = (df['high'] + df['low'] + df['close']) / 3
         df['raw_money_flow'] = df['typical_price'] * df['volume']
         
-        df['positive_flow'] = 0
-        df['negative_flow'] = 0
+        # Initialize as float to avoid dtype issues
+        df['positive_flow'] = 0.0
+        df['negative_flow'] = 0.0
         
-        df.loc[df['typical_price'] > df['typical_price'].shift(1), 'positive_flow'] = df['raw_money_flow']
-        df.loc[df['typical_price'] < df['typical_price'].shift(1), 'negative_flow'] = df['raw_money_flow']
+        # Use boolean mask to assign values
+        price_up_mask = df['typical_price'] > df['typical_price'].shift(1)
+        price_down_mask = df['typical_price'] < df['typical_price'].shift(1)
+        
+        df.loc[price_up_mask, 'positive_flow'] = df.loc[price_up_mask, 'raw_money_flow']
+        df.loc[price_down_mask, 'negative_flow'] = df.loc[price_down_mask, 'raw_money_flow']
         
         positive_mf = df['positive_flow'].rolling(window=period).sum()
         negative_mf = df['negative_flow'].rolling(window=period).sum()
         
-        mfi = 100 - (100 / (1 + (positive_mf / negative_mf)))
+        # Avoid division by zero
+        mfi = 100 - (100 / (1 + (positive_mf / negative_mf.replace(0, np.nan))))
         df['mfi'] = mfi
         
         return df
