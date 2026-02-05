@@ -1,18 +1,23 @@
-pandas
-numpy
-yfinance
-requests
-aiohttp
-openpyxl
-xlrd
-scipy
-psutil
-feedparser
-bs4
-matplotlib
-seaborn
-scipy
-scikit-learn
-torch
-transformers
-sentence-transformers
+# Core dependencies
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# AI/LLM
+llama-cpp-python>=0.2.0
+
+# PDF Export (choose one or more)
+weasyprint>=60.0        # Recommended - best quality
+# playwright>=1.40.0    # Uncomment for lightweight alternative
+# pdfkit>=1.0.0         # Uncomment for pdfkit method
+
+# Optional: Analysis modules
+# yfinance>=0.2.0
+# requests>=2.31.0
+# beautifulsoup4>=4.12.0
+# transformers>=4.35.0
+# torch>=2.0.0
+# sentence-transformers>=2.2.0
