@@ -1,0 +1,31 @@
+name: Test Market Structure Analyzer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'market_structure_analyzer.py'
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test-market-structure:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+    
+    - name: Test market structure analyzer
+      run: |
+        python market_structure_analyzer.py
