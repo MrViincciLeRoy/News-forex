@@ -1,6 +1,6 @@
 """
-Enhanced News Fetcher with Multiple Sources
-Fixes timeout issues by trying multiple news APIs and RSS feeds
+Enhanced News Fetcher with SERP Integration
+Uses SerpAPI for comprehensive news gathering with full article content
 """
 
 import requests
@@ -12,22 +12,26 @@ import feedparser
 from bs4 import BeautifulSoup
 import os
 
+try:
+    from serp_news_fetcher import SerpNewsFetcher
+    SERP_AVAILABLE = True
+except ImportError:
+    SERP_AVAILABLE = False
 
-class EnhancedNewsFetcher:
+
+class NewsFetcher:
     """
-    Multi-source news fetcher with fallbacks:
-    1. NewsAPI (if API key available)
-    2. Google News RSS
-    3. Bing News API
-    4. Yahoo Finance RSS
-    5. Reuters RSS
+    Multi-source news fetcher with SERP integration
+    Priority: SERP API > RSS feeds > fallback sources
     """
     
-    def __init__(self):
+    def __init__(self, prefer_serp=True):
+        self.prefer_serp = prefer_serp and SERP_AVAILABLE
+        self.serp_fetcher = SerpNewsFetcher() if SERP_AVAILABLE else None
+        
         self.newsapi_key = os.environ.get('NEWSAPI_KEY', '')
         self.bing_key = os.environ.get('BING_NEWS_KEY', '')
         
-        # RSS feeds (no API key needed!)
         self.rss_feeds = {
             'google_news': 'https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en',
             'yahoo_finance': 'https://finance.yahoo.com/rss/headline',
@@ -39,97 +43,208 @@ class EnhancedNewsFetcher:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
     
-    def fetch_event_news(self, date: str, event_name: str, max_records: int = 10) -> List[Dict]:
+    def fetch_event_news(
+        self,
+        date: str,
+        event_name: str,
+        max_records: int = 20,
+        full_content: bool = True
+    ) -> List[Dict]:
         """
-        Fetch news for specific event with multiple fallbacks
+        Fetch news for specific event with SERP priority
         
         Args:
             date: Date string 'YYYY-MM-DD'
             event_name: Event name (e.g., 'Non-Farm Payrolls')
-            max_records: Maximum articles to return
+            max_records: Maximum articles (default 20)
+            full_content: Extract full article content (default True)
             
         Returns:
-            List of article dictionaries
+            List of article dictionaries with full content
         """
-        print(f"\nFetching news for event: {event_name}")
-        
-        date_obj = datetime.strptime(date, '%Y-%m-%d')
-        
-        # Generate search query
-        query = self._generate_search_query(event_name, date_obj)
-        print(f"  Search query: '{query}'")
+        print(f"\n{'='*80}")
+        print(f"FETCHING NEWS: {event_name}")
+        print(f"{'='*80}")
+        print(f"Date: {date}")
+        print(f"Max Articles: {max_records}")
+        print(f"Full Content: {full_content}")
+        print(f"SERP Available: {SERP_AVAILABLE}")
         
         all_articles = []
         
-        # Try multiple sources in order
-        sources_tried = []
-        
-        # 1. Try Google News RSS (most reliable, no API key needed)
-        try:
-            print(f"  [1/4] Trying Google News RSS...")
-            articles = self._fetch_google_news_rss(query, date_obj, max_records)
-            if articles:
-                all_articles.extend(articles)
-                sources_tried.append(f"Google RSS ({len(articles)})")
-                print(f"  ✓ Google News RSS: {len(articles)} articles")
-        except Exception as e:
-            print(f"  ✗ Google News RSS failed: {str(e)[:50]}")
-        
-        # 2. Try NewsAPI if key available
-        if self.newsapi_key and len(all_articles) < max_records:
+        # PRIORITY 1: Try SERP if available
+        if self.prefer_serp and self.serp_fetcher:
             try:
-                print(f"  [2/4] Trying NewsAPI...")
-                articles = self._fetch_newsapi(query, date_obj, max_records - len(all_articles))
-                if articles:
+                print(f"\n[1/3] Trying SERP API...")
+                print("-"*80)
+                
+                serp_results = self.serp_fetcher.fetch_comprehensive_news(
+                    query=event_name,
+                    date=date,
+                    max_articles=max_records,
+                    full_content=full_content
+                )
+                
+                if serp_results and serp_results.get('articles'):
+                    articles = self._convert_serp_format(serp_results['articles'])
                     all_articles.extend(articles)
-                    sources_tried.append(f"NewsAPI ({len(articles)})")
-                    print(f"  ✓ NewsAPI: {len(articles)} articles")
+                    
+                    print(f"\n✓ SERP: {len(articles)} articles")
+                    print(f"  Full content: {serp_results['statistics']['full_content_extracted']}")
+                    print(f"  Sources: {serp_results['statistics']['sources_count']}")
+                    
+                    if len(all_articles) >= max_records:
+                        return self._finalize_articles(all_articles[:max_records])
+            
             except Exception as e:
-                print(f"  ✗ NewsAPI failed: {str(e)[:50]}")
+                print(f"\n✗ SERP failed: {str(e)[:60]}")
         
-        # 3. Try Yahoo Finance RSS
+        # PRIORITY 2: RSS feeds
         if len(all_articles) < max_records:
             try:
-                print(f"  [3/4] Trying Yahoo Finance RSS...")
-                articles = self._fetch_yahoo_finance_rss(event_name, date_obj, max_records - len(all_articles))
-                if articles:
-                    all_articles.extend(articles)
-                    sources_tried.append(f"Yahoo RSS ({len(articles)})")
-                    print(f"  ✓ Yahoo Finance RSS: {len(articles)} articles")
+                print(f"\n[2/3] Trying RSS feeds...")
+                print("-"*80)
+                
+                rss_articles = self._fetch_from_rss(event_name, date, max_records - len(all_articles))
+                
+                if rss_articles:
+                    all_articles.extend(rss_articles)
+                    print(f"✓ RSS: {len(rss_articles)} articles")
+            
             except Exception as e:
-                print(f"  ✗ Yahoo Finance RSS failed: {str(e)[:50]}")
+                print(f"✗ RSS failed: {str(e)[:60]}")
         
-        # 4. Try Bing News if key available
-        if self.bing_key and len(all_articles) < max_records:
+        # PRIORITY 3: Other APIs
+        if len(all_articles) < max_records:
             try:
-                print(f"  [4/4] Trying Bing News API...")
-                articles = self._fetch_bing_news(query, date_obj, max_records - len(all_articles))
-                if articles:
-                    all_articles.extend(articles)
-                    sources_tried.append(f"Bing ({len(articles)})")
-                    print(f"  ✓ Bing News: {len(articles)} articles")
+                print(f"\n[3/3] Trying fallback APIs...")
+                print("-"*80)
+                
+                fallback_articles = self._fetch_fallback(event_name, date, max_records - len(all_articles))
+                
+                if fallback_articles:
+                    all_articles.extend(fallback_articles)
+                    print(f"✓ Fallback: {len(fallback_articles)} articles")
+            
             except Exception as e:
-                print(f"  ✗ Bing News failed: {str(e)[:50]}")
+                print(f"✗ Fallback failed: {str(e)[:60]}")
         
-        # Remove duplicates
-        all_articles = self._deduplicate_articles(all_articles)
+        final_articles = self._finalize_articles(all_articles[:max_records])
         
-        # Sort by relevance/date
-        all_articles = sorted(
-            all_articles,
-            key=lambda x: (x.get('relevance_score', 0), x.get('published_date', '')),
-            reverse=True
-        )[:max_records]
+        print(f"\n{'='*80}")
+        print(f"✓ FETCH COMPLETE: {len(final_articles)} total articles")
+        print(f"{'='*80}\n")
         
-        print(f"\n  ✓ Total fetched: {len(all_articles)} articles")
-        print(f"  Sources: {', '.join(sources_tried) if sources_tried else 'None'}")
+        return final_articles
+    
+    def _convert_serp_format(self, serp_articles: List[Dict]) -> List[Dict]:
+        """Convert SERP format to standard format"""
+        converted = []
+        
+        for article in serp_articles:
+            converted.append({
+                'title': article.get('title', ''),
+                'content': article.get('full_content', article.get('snippet', '')),
+                'url': article.get('url', ''),
+                'published_date': article.get('date', ''),
+                'source': f"SERP - {article.get('source', 'Unknown')}",
+                'relevance_score': 0.95,
+                'content_length': article.get('content_length', 0),
+                'extraction_method': 'serp_api'
+            })
+        
+        return converted
+    
+    def _fetch_from_rss(self, event_name: str, date: str, max_records: int) -> List[Dict]:
+        """Fetch from RSS feeds"""
+        date_obj = datetime.strptime(date, '%Y-%m-%d')
+        all_articles = []
+        
+        # Google News RSS
+        try:
+            query = self._generate_search_query(event_name, date_obj)
+            url = self.rss_feeds['google_news'].format(query=requests.utils.quote(query))
+            
+            response = self.session.get(url, timeout=10)
+            response.raise_for_status()
+            
+            feed = feedparser.parse(response.content)
+            
+            for entry in feed.entries[:max_records * 2]:
+                pub_date = None
+                if hasattr(entry, 'published_parsed'):
+                    pub_date = datetime(*entry.published_parsed[:6])
+                
+                if pub_date:
+                    days_diff = abs((pub_date.date() - date_obj.date()).days)
+                    if days_diff > 3:
+                        continue
+                
+                article = {
+                    'title': entry.get('title', ''),
+                    'content': entry.get('summary', ''),
+                    'url': entry.get('link', ''),
+                    'published_date': pub_date.isoformat() if pub_date else date_obj.isoformat(),
+                    'source': 'Google News RSS',
+                    'relevance_score': 0.8,
+                    'extraction_method': 'rss'
+                }
+                
+                all_articles.append(article)
+                
+                if len(all_articles) >= max_records:
+                    break
+        
+        except Exception as e:
+            pass
         
         return all_articles
     
+    def _fetch_fallback(self, event_name: str, date: str, max_records: int) -> List[Dict]:
+        """Fallback to NewsAPI or Bing if available"""
+        articles = []
+        
+        if self.newsapi_key:
+            try:
+                date_obj = datetime.strptime(date, '%Y-%m-%d')
+                from_date = (date_obj - timedelta(days=1)).strftime('%Y-%m-%d')
+                to_date = (date_obj + timedelta(days=1)).strftime('%Y-%m-%d')
+                
+                url = 'https://newsapi.org/v2/everything'
+                params = {
+                    'q': event_name,
+                    'from': from_date,
+                    'to': to_date,
+                    'language': 'en',
+                    'sortBy': 'relevancy',
+                    'pageSize': max_records,
+                    'apiKey': self.newsapi_key
+                }
+                
+                response = self.session.get(url, params=params, timeout=10)
+                response.raise_for_status()
+                
+                data = response.json()
+                
+                for item in data.get('articles', []):
+                    article = {
+                        'title': item.get('title', ''),
+                        'content': item.get('description', '') or item.get('content', ''),
+                        'url': item.get('url', ''),
+                        'published_date': item.get('publishedAt', date),
+                        'source': f"NewsAPI - {item.get('source', {}).get('name', 'Unknown')}",
+                        'relevance_score': 0.85,
+                        'extraction_method': 'newsapi'
+                    }
+                    articles.append(article)
+            
+            except Exception as e:
+                pass
+        
+        return articles
+    
     def _generate_search_query(self, event_name: str, date_obj: datetime) -> str:
         """Generate optimized search query"""
-        
-        # Event-specific keywords
         event_keywords = {
             'non-farm payrolls': ['jobs report', 'employment', 'unemployment', 'NFP'],
             'cpi': ['inflation', 'consumer prices', 'CPI'],
@@ -139,204 +254,55 @@ class EnhancedNewsFetcher:
         }
         
         event_lower = event_name.lower()
-        
-        # Find matching keywords
         keywords = [event_name]
+        
         for key, terms in event_keywords.items():
             if key in event_lower:
                 keywords.extend(terms)
                 break
         
-        # Add date context
         month_year = date_obj.strftime('%B %Y')
         keywords.append(month_year)
         
-        return ' OR '.join(keywords[:3])  # Limit to avoid too long queries
+        return ' OR '.join(keywords[:3])
     
-    def _fetch_google_news_rss(self, query: str, date_obj: datetime, max_records: int) -> List[Dict]:
-        """Fetch from Google News RSS (no API key needed!)"""
-        
-        url = self.rss_feeds['google_news'].format(query=requests.utils.quote(query))
-        
-        response = self.session.get(url, timeout=10)
-        response.raise_for_status()
-        
-        feed = feedparser.parse(response.content)
-        
-        articles = []
-        for entry in feed.entries[:max_records * 2]:  # Get extra for filtering
-            
-            # Parse date
-            pub_date = None
-            if hasattr(entry, 'published_parsed'):
-                pub_date = datetime(*entry.published_parsed[:6])
-            
-            # Check if within date range (±3 days)
-            if pub_date:
-                days_diff = abs((pub_date.date() - date_obj.date()).days)
-                if days_diff > 3:
-                    continue
-            
-            article = {
-                'title': entry.get('title', ''),
-                'content': entry.get('summary', ''),
-                'url': entry.get('link', ''),
-                'published_date': pub_date.isoformat() if pub_date else date_obj.isoformat(),
-                'source': 'Google News RSS',
-                'relevance_score': 0.8
-            }
-            
-            articles.append(article)
-            
-            if len(articles) >= max_records:
-                break
-        
-        return articles
-    
-    def _fetch_newsapi(self, query: str, date_obj: datetime, max_records: int) -> List[Dict]:
-        """Fetch from NewsAPI (requires API key)"""
-        
-        from_date = (date_obj - timedelta(days=1)).strftime('%Y-%m-%d')
-        to_date = (date_obj + timedelta(days=1)).strftime('%Y-%m-%d')
-        
-        url = 'https://newsapi.org/v2/everything'
-        params = {
-            'q': query,
-            'from': from_date,
-            'to': to_date,
-            'language': 'en',
-            'sortBy': 'relevancy',
-            'pageSize': max_records,
-            'apiKey': self.newsapi_key
-        }
-        
-        response = self.session.get(url, params=params, timeout=10)
-        response.raise_for_status()
-        
-        data = response.json()
-        
-        articles = []
-        for item in data.get('articles', []):
-            article = {
-                'title': item.get('title', ''),
-                'content': item.get('description', '') or item.get('content', ''),
-                'url': item.get('url', ''),
-                'published_date': item.get('publishedAt', date_obj.isoformat()),
-                'source': f"NewsAPI - {item.get('source', {}).get('name', 'Unknown')}",
-                'relevance_score': 0.9
-            }
-            articles.append(article)
-        
-        return articles
-    
-    def _fetch_yahoo_finance_rss(self, event_name: str, date_obj: datetime, max_records: int) -> List[Dict]:
-        """Fetch from Yahoo Finance RSS"""
-        
-        url = self.rss_feeds['yahoo_finance']
-        
-        response = self.session.get(url, timeout=10)
-        response.raise_for_status()
-        
-        feed = feedparser.parse(response.content)
-        
-        articles = []
-        event_keywords = event_name.lower().split()
-        
-        for entry in feed.entries[:max_records * 3]:
-            
-            # Filter by keyword relevance
-            title = entry.get('title', '').lower()
-            summary = entry.get('summary', '').lower()
-            
-            relevance = sum(1 for kw in event_keywords if kw in title or kw in summary)
-            if relevance == 0:
-                continue
-            
-            pub_date = None
-            if hasattr(entry, 'published_parsed'):
-                pub_date = datetime(*entry.published_parsed[:6])
-            
-            article = {
-                'title': entry.get('title', ''),
-                'content': entry.get('summary', ''),
-                'url': entry.get('link', ''),
-                'published_date': pub_date.isoformat() if pub_date else date_obj.isoformat(),
-                'source': 'Yahoo Finance RSS',
-                'relevance_score': 0.7 + (relevance * 0.1)
-            }
-            
-            articles.append(article)
-            
-            if len(articles) >= max_records:
-                break
-        
-        return articles
-    
-    def _fetch_bing_news(self, query: str, date_obj: datetime, max_records: int) -> List[Dict]:
-        """Fetch from Bing News API (requires API key)"""
-        
-        url = 'https://api.bing.microsoft.com/v7.0/news/search'
-        headers = {'Ocp-Apim-Subscription-Key': self.bing_key}
-        params = {
-            'q': query,
-            'count': max_records,
-            'mkt': 'en-US',
-            'freshness': 'Week'
-        }
-        
-        response = self.session.get(url, headers=headers, params=params, timeout=10)
-        response.raise_for_status()
-        
-        data = response.json()
-        
-        articles = []
-        for item in data.get('value', []):
-            article = {
-                'title': item.get('name', ''),
-                'content': item.get('description', ''),
-                'url': item.get('url', ''),
-                'published_date': item.get('datePublished', date_obj.isoformat()),
-                'source': f"Bing - {item.get('provider', [{}])[0].get('name', 'Unknown')}",
-                'relevance_score': 0.85
-            }
-            articles.append(article)
-        
-        return articles
-    
-    def _deduplicate_articles(self, articles: List[Dict]) -> List[Dict]:
-        """Remove duplicate articles based on title similarity"""
-        
-        unique = []
+    def _finalize_articles(self, articles: List[Dict]) -> List[Dict]:
+        """Deduplicate and sort articles"""
+        seen_urls = set()
         seen_titles = set()
+        unique = []
         
         for article in articles:
+            url = article.get('url', '')
             title = article.get('title', '').lower().strip()
             
-            # Simple deduplication based on title
-            title_key = ''.join(c for c in title if c.isalnum())[:50]
+            url_key = url.split('?')[0]
+            title_key = ''.join(c for c in title if c.isalnum())[:100]
             
-            if title_key not in seen_titles:
+            if url_key not in seen_urls and title_key not in seen_titles:
+                seen_urls.add(url_key)
                 seen_titles.add(title_key)
                 unique.append(article)
         
+        unique = sorted(
+            unique,
+            key=lambda x: (x.get('relevance_score', 0), len(x.get('content', ''))),
+            reverse=True
+        )
+        
         return unique
     
-    def fetch_news(self, date: str, max_records: int = 10) -> List[Dict]:
+    def fetch_news(self, date: str, max_records: int = 20) -> List[Dict]:
         """Fetch general financial news for a date"""
-        
         date_obj = datetime.strptime(date, '%Y-%m-%d')
-        
-        # Generic financial news query
         query = f"markets finance economy stocks {date_obj.strftime('%B %Y')}"
         
         return self.fetch_event_news(date, query, max_records)
     
     def get_affected_symbols(self, event_name: str, text: str) -> List[str]:
         """Extract financial symbols from event and text"""
-        
         symbols = set()
         
-        # Event-specific symbol mappings
         event_symbols = {
             'non-farm payrolls': ['DX-Y.NYB', 'GC=F', '^GSPC', 'EURUSD=X', '^TNX'],
             'cpi': ['GC=F', 'DX-Y.NYB', '^GSPC', 'TLT', 'EURUSD=X'],
@@ -351,7 +317,6 @@ class EnhancedNewsFetcher:
                 symbols.update(symbol_list)
                 break
         
-        # Text-based extraction
         text_upper = text.upper()
         
         symbol_keywords = {
@@ -370,40 +335,37 @@ class EnhancedNewsFetcher:
         return list(symbols)
 
 
-class NewsFetcher(EnhancedNewsFetcher):
-    """Backward compatibility alias"""
-    pass
-
-
 if __name__ == "__main__":
-    fetcher = EnhancedNewsFetcher()
+    fetcher = NewsFetcher(prefer_serp=True)
     
     print("="*80)
-    print("ENHANCED NEWS FETCHER TEST")
+    print("NEWS FETCHER TEST WITH SERP INTEGRATION")
     print("="*80)
     
-    # Test 1: Non-Farm Payrolls
-    print("\nTest 1: Non-Farm Payrolls (2024-11-01)")
+    print("\nTest: Non-Farm Payrolls (2024-11-01)")
     print("-" * 80)
     
-    articles = fetcher.fetch_event_news('2024-11-01', 'Non-Farm Payrolls', max_records=5)
+    articles = fetcher.fetch_event_news(
+        date='2024-11-01',
+        event_name='Non-Farm Payrolls',
+        max_records=20,
+        full_content=True
+    )
     
     print(f"\n✓ Fetched {len(articles)} articles\n")
     
     for i, article in enumerate(articles[:3], 1):
-        print(f"{i}. {article['title']}")
+        print(f"{i}. {article['title'][:70]}...")
         print(f"   Source: {article['source']}")
-        print(f"   URL: {article['url'][:60]}...")
+        print(f"   Content: {len(article.get('content', ''))} chars")
+        print(f"   Method: {article.get('extraction_method', 'unknown')}")
         print()
     
-    # Test 2: Symbol extraction
-    print("\nTest 2: Symbol Extraction")
-    print("-" * 80)
-    
-    if articles:
-        text = ' '.join([a['title'] + ' ' + a['content'] for a in articles])
-        symbols = fetcher.get_affected_symbols('Non-Farm Payrolls', text)
-        print(f"Extracted symbols: {', '.join(symbols)}")
+    symbols = fetcher.get_affected_symbols(
+        'Non-Farm Payrolls',
+        ' '.join([a['title'] + ' ' + a.get('content', '') for a in articles])
+    )
+    print(f"Extracted symbols: {', '.join(symbols)}")
     
     print("\n" + "="*80)
     print("✓ TEST COMPLETE")
