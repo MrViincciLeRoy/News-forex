@@ -55,11 +55,12 @@ jobs:
         merge-multiple: true
     
     - name: Find or Create JSON file
-      id: find-json
       run: |
         echo "================================"
-        echo "FINDING JSON DATA"
+        echo "FINDING OR GENERATING JSON DATA"
         echo "================================"
+        
+        FORCE="${FORCE_GENERATE:-false}"
         
         # Check if user provided a specific file
         if [ -n "${{ github.event.inputs.json_file }}" ]; then
@@ -75,103 +76,45 @@ jobs:
           echo "🔍 Searching for comprehensive_*.json files..."
           JSON_FILE=$(find . -name "comprehensive_*.json" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
           
-          if [ -n "$JSON_FILE" ]; then
+          if [ -n "$JSON_FILE" ] && [ "$FORCE" != "true" ]; then
             echo "✅ Found existing JSON: $JSON_FILE"
           else
-            echo "⚠️  No JSON file found, creating mock data..."
+            if [ "$FORCE" == "true" ]; then
+              echo "🔄 Force generation requested"
+            else
+              echo "⚠️  No JSON file found"
+            fi
             
-            mkdir -p test_output
+            echo "🚀 Running comprehensive pipeline to generate data..."
+            echo ""
             
-            python -c "
-        import json
-        from datetime import datetime
-        
-        mock_data = {
-            'metadata': {
-                'date': '2024-11-01',
-                'event_name': 'Non-Farm Payrolls',
-                'timestamp': datetime.now().isoformat(),
-                'pipeline_version': '2.0'
-            },
-            'sections': {
-                'executive_summary': {
-                    'market_overview': 'Analysis of Non-Farm Payrolls on 2024-11-01',
-                    'sentiment': {'overall': 'BULLISH', 'confidence': 0.75},
-                    'key_findings': [
-                        'Technical indicators align bullishly',
-                        'Institutional positioning shows strength',
-                        'Seasonal patterns favorable'
-                    ],
-                    'recommendations': [
-                        'Monitor key support levels',
-                        'Watch for volume confirmation'
-                    ]
-                },
-                'news': {
-                    'article_count': 15,
-                    'sources': ['Reuters', 'Bloomberg', 'FT'],
-                    'key_themes': ['employment', 'inflation', 'growth'],
-                    'sentiment': 'POSITIVE'
-                },
-                'indicators': {
-                    'overall_bias': 'BULLISH',
-                    'buy_signals': 8,
-                    'sell_signals': 3,
-                    'neutral_signals': 2
-                },
-                'cot': {
-                    'net_positioning': 'LONG',
-                    'positioning_change': '+15%',
-                    'institutional_sentiment': 'BULLISH'
-                },
-                'economic': {
-                    'overall_status': 'MODERATE',
-                    'inflation_trend': 'RISING',
-                    'growth_outlook': 'STABLE'
-                },
-                'correlations': {
-                    'key_relationships': {
-                        'DXY_GOLD': {'strength': 'STRONG', 'direction': 'INVERSE'}
-                    }
-                },
-                'structure': {
-                    'trend': 'UPTREND',
-                    'support_levels': [1950, 1925, 1900],
-                    'resistance_levels': [2000, 2025, 2050]
-                },
-                'seasonality': {
-                    'seasonal_bias': 'BULLISH',
-                    'historical_performance': '+2.5%'
-                },
-                'volume': {
-                    'volume_trend': 'INCREASING',
-                    'volume_profile': 'ACCUMULATION'
-                },
-                'hf_methods': {
-                    'sentiment_score': 0.65,
-                    'forecast_direction': 'UP',
-                    'anomalies_detected': 0
-                },
-                'synthesis': {
-                    'overall_outlook': 'BULLISH',
-                    'confidence': 0.75,
-                    'key_factors': [
-                        'Technical strength',
-                        'Institutional support',
-                        'Favorable seasonality'
-                    ],
-                    'risks': ['Economic uncertainty', 'Elevated volatility']
-                }
-            }
-        }
-        
-        with open('test_output/comprehensive_mock.json', 'w') as f:
-            json.dump(mock_data, f, indent=2)
-        
-        print('✓ Mock data created')
-            "
+            # Run the comprehensive pipeline
+            python comprehensive_pipeline.py 2>&1 | tee pipeline_run.log
             
-            JSON_FILE="test_output/comprehensive_mock.json"
+            PIPELINE_EXIT=$?
+            
+            if [ $PIPELINE_EXIT -ne 0 ]; then
+              echo ""
+              echo "❌ Pipeline failed with exit code: $PIPELINE_EXIT"
+              echo "Last 50 lines of output:"
+              tail -50 pipeline_run.log
+              exit 1
+            fi
+            
+            # Find the newly generated JSON
+            echo ""
+            echo "🔍 Looking for generated JSON file..."
+            JSON_FILE=$(find . -name "comprehensive_*.json" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
+            
+            if [ -z "$JSON_FILE" ]; then
+              echo "❌ ERROR: Pipeline completed but no JSON file was generated"
+              echo ""
+              echo "Generated files:"
+              find . -name "*.json" -type f -mmin -10
+              exit 1
+            fi
+            
+            echo "✅ Generated new data: $JSON_FILE"
           fi
         fi
         
@@ -181,6 +124,7 @@ jobs:
           exit 1
         fi
         
+        # Quick JSON validation
         if ! python -c "import json; json.load(open('$JSON_FILE'))" 2>/dev/null; then
           echo "❌ ERROR: Invalid JSON file: $JSON_FILE"
           exit 1
@@ -196,29 +140,16 @@ jobs:
         echo "================================"
         
         echo "json_file=$JSON_FILE" >> $GITHUB_OUTPUT
-    
-    - name: Generate PDF-optimized HTML report
+    - name: Generate AI-powered HTML report with Local LLM
       run: |
         echo "================================"
-        echo "GENERATING PDF-OPTIMIZED HTML"
+        echo "GENERATING AI-POWERED REPORT"
+        echo "Using: BIST-Financial-Qwen-7B"
+        echo "Mode: Local LLM (No API needed)"
         echo "================================"
-        
-        if [ -f pdf_optimized_report_generator.py ]; then
-          python pdf_optimized_report_generator.py "${{ steps.find-json.outputs.json_file }}"
-        else
-          echo "⚠️  pdf_optimized_report_generator.py not found"
-          echo "Using local_llm_report_generator.py as fallback..."
-          
-          if [ -f local_llm_report_generator.py ]; then
-            python local_llm_report_generator.py "${{ steps.find-json.outputs.json_file }}"
-          else
-            echo "❌ No report generator found"
-            exit 1
-          fi
-        fi
-    
-    - name: Find generated HTML
-      id: find-html
+        python local_llm_report_generator.py "${{ steps.find-json.outputs.json_file }}"
+  
+    - name: Find html
       run: |
         # Look for PDF-optimized HTML first
         HTML_FILE=$(find . -name "*_pdf_optimized.html" -type f | head -1)
