@@ -159,31 +159,21 @@ class ComprehensivePipeline:
         print("-"*80)
     
     def _load_hf_models(self):
-        """Load HF models with memory awareness"""
+        """Load HF models with enhanced analyzer"""
         try:
-            from hf_method1_sentiment import HFSentimentAnalyzer
-            from hf_method2_ner import HFEntityExtractor
+            from enhanced_hf_analyzer import EnhancedHFAnalyzer
             
-            print("\nLoading HF models...")
+            self.hf_analyzer = EnhancedHFAnalyzer()
+            success = self.hf_analyzer.load_models()
             
-            try:
-                sentiment = HFSentimentAnalyzer()
-                sentiment.load_model()
-                self.hf_models['sentiment'] = sentiment
-                print("  ✓ Sentiment analyzer")
-            except:
-                print("  ⊘ Sentiment analyzer failed")
+            if success:
+                self.hf_models['enhanced'] = self.hf_analyzer
+                print(f"✓ Enhanced HF Analyzer ready ({len(self.hf_analyzer.available_methods)} methods)")
             
-            try:
-                ner = HFEntityExtractor()
-                ner.load_model()
-                self.hf_models['ner'] = ner
-                print("  ✓ Entity extractor")
-            except:
-                print("  ⊘ Entity extractor failed")
-        
         except ImportError:
-            print("\n⊘ HF models not available")
+            print("\n⊘ Enhanced HF analyzer not available - install required packages")
+        except Exception as e:
+            print(f"\n⊘ HF analyzer error: {str(e)[:60]}")
     
     def analyze(self, date: str, event_name: Optional[str] = None, symbols: Optional[List[str]] = None) -> Dict:
         """
@@ -496,33 +486,23 @@ class ComprehensivePipeline:
         return results
     
     def _run_hf_analysis(self, date: str, event_name: Optional[str], news_results: Dict, symbols: List[str]) -> Dict:
-        """Run HF AI analysis"""
-        hf_results = {}
-        articles = news_results.get('articles', [])
+        """Run HF AI analysis with enhanced analyzer"""
         
-        # Sentiment
-        if 'sentiment' in self.hf_models and articles:
-            try:
-                analyzer = self.hf_models['sentiment']
-                sentiment = analyzer.analyze_news_articles(articles)
-                aggregated = analyzer.aggregate_sentiment(sentiment)
-                hf_results['sentiment'] = {'articles': sentiment, 'aggregated': aggregated}
-                print(f"  ✓ Sentiment: {aggregated.get('overall_sentiment', 'N/A').upper()}")
-            except Exception as e:
-                print(f"  ⊘ Sentiment: {str(e)[:40]}")
+        # Check if enhanced analyzer is available
+        if 'enhanced' in self.hf_models:
+            analyzer = self.hf_models['enhanced']
+            articles = news_results.get('articles', [])
+            
+            return analyzer.analyze_comprehensive(
+                articles=articles,
+                symbols=symbols,
+                date=date,
+                event_name=event_name
+            )
         
-        # NER
-        if 'ner' in self.hf_models and articles:
-            try:
-                extractor = self.hf_models['ner']
-                entities = extractor.analyze_batch(articles)
-                aggregated = extractor.aggregate_symbols(entities)
-                hf_results['entities'] = {'analyzed': entities, 'aggregated': aggregated}
-                print(f"  ✓ NER: {aggregated.get('symbol_count', 0)} symbols")
-            except Exception as e:
-                print(f"  ⊘ NER: {str(e)[:40]}")
-        
-        return hf_results
+        # No HF models available
+        print("  ⊘ No HF models loaded")
+        return {}
     
     def _save_results(self, results: Dict, date: str, event_name: Optional[str]) -> str:
         """Save results to file"""
