@@ -1,0 +1,99 @@
+name: Generate AI-Powered HTML Report
+
+on:
+  workflow_dispatch:
+    inputs:
+      json_file:
+        description: 'Path to JSON file (leave empty for most recent)'
+        required: false
+        default: ''
+  workflow_run:
+    workflows: ["Test Comprehensive Pipeline"]
+    types:
+      - completed
+
+jobs:
+  generate-ai-report:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        pip install requests
+    
+    - name: Download pipeline artifacts (if triggered by workflow)
+      if: github.event_name == 'workflow_run'
+      uses: actions/download-artifact@v4
+      with:
+        name: comprehensive-analysis-*
+        path: pipeline_output/
+        run-id: ${{ github.event.workflow_run.id }}
+    
+    - name: Find JSON file
+      id: find-json
+      run: |
+        if [ -n "${{ github.event.inputs.json_file }}" ]; then
+          JSON_FILE="${{ github.event.inputs.json_file }}"
+        else
+          # Find most recent comprehensive JSON
+          JSON_FILE=$(find . -name "comprehensive_*.json" -type f -printf '%T@ %p\n' | sort -rn | head -1 | cut -d' ' -f2-)
+        fi
+        
+        if [ -z "$JSON_FILE" ]; then
+          echo "ERROR: No JSON file found"
+          exit 1
+        fi
+        
+        echo "json_file=$JSON_FILE" >> $GITHUB_OUTPUT
+        echo "Found JSON file: $JSON_FILE"
+    
+    - name: Generate AI-powered HTML report
+      env:
+        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      run: |
+        python groq_ai_report_generator.py "${{ steps.find-json.outputs.json_file }}"
+    
+    - name: Upload HTML report
+      uses: actions/upload-artifact@v4
+      with:
+        name: ai-html-report-${{ github.run_number }}
+        path: |
+          **/*_ai_report.html
+        retention-days: 90
+    
+    - name: Display summary
+      run: |
+        echo "================================"
+        echo "AI-POWERED REPORT GENERATED"
+        echo "================================"
+        echo ""
+        echo "Input JSON: ${{ steps.find-json.outputs.json_file }}"
+        echo ""
+        echo "HTML Reports:"
+        find . -name "*_ai_report.html" -type f
+        echo ""
+        echo "Report Size:"
+        find . -name "*_ai_report.html" -type f -exec ls -lh {} \;
+        echo ""
+        echo "✅ Report generation complete!"
+    
+    - name: Comment on PR (if applicable)
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: '🤖 **AI-Powered Analysis Report Generated!**\n\nDownload the HTML report from the workflow artifacts to view the comprehensive AI analysis.'
+          })
