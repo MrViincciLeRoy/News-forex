@@ -12,4 +12,7 @@ bs4
 matplotlib
 seaborn
 scipy
-sci-learn
+scikit-learn
+torch
+transformers
+sentence-transformers
