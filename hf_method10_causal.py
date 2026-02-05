@@ -30,8 +30,9 @@ class HFCausalExplainer:
             from transformers import pipeline
             
             print(f"Loading model: {self.model_name}")
+            # Use 'text-generation' instead of 'text2text-generation'
             self.pipeline = pipeline(
-                "text2text-generation",
+                "text-generation",
                 model=self.model_name,
                 max_length=200
             )
@@ -64,8 +65,11 @@ class HFCausalExplainer:
             prompt = f"Explain why {asset1} and {asset2} are {relationship} in financial markets."
             
             try:
-                result = self.pipeline(prompt)[0]['generated_text']
-                return result
+                result = self.pipeline(prompt, max_new_tokens=100)[0]['generated_text']
+                # Remove the original prompt from the result if it's included
+                if result.startswith(prompt):
+                    result = result[len(prompt):].strip()
+                return result if result else self._generate_correlation_explanation(asset1, asset2, correlation)
             except:
                 pass
         
@@ -103,8 +107,10 @@ class HFCausalExplainer:
             prompt = f"Explain how {event} affects {symbols_str} in financial markets."
             
             try:
-                result = self.pipeline(prompt)[0]['generated_text']
-                return result
+                result = self.pipeline(prompt, max_new_tokens=100)[0]['generated_text']
+                if result.startswith(prompt):
+                    result = result[len(prompt):].strip()
+                return result if result else self._generate_event_explanation(event, affected_symbols)
             except:
                 pass
         
@@ -138,8 +144,10 @@ class HFCausalExplainer:
             prompt = f"Explain why {asset} typically performs best in {best_month} and worst in {worst_month}."
             
             try:
-                result = self.pipeline(prompt)[0]['generated_text']
-                return result
+                result = self.pipeline(prompt, max_new_tokens=100)[0]['generated_text']
+                if result.startswith(prompt):
+                    result = result[len(prompt):].strip()
+                return result if result else self._generate_seasonality_explanation(asset, best_month, worst_month)
             except:
                 pass
         
@@ -167,11 +175,17 @@ class HFCausalExplainer:
             prompt = f"Explain what caused a {severity} {anomaly_type} anomaly in the market."
             
             try:
-                result = self.pipeline(prompt)[0]['generated_text']
-                return result
+                result = self.pipeline(prompt, max_new_tokens=100)[0]['generated_text']
+                if result.startswith(prompt):
+                    result = result[len(prompt):].strip()
+                return result if result else self._get_anomaly_explanation(anomaly_type)
             except:
                 pass
         
+        return self._get_anomaly_explanation(anomaly_type)
+    
+    def _get_anomaly_explanation(self, anomaly_type: str) -> str:
+        """Get predefined anomaly explanation"""
         explanations = {
             'PRICE_ANOMALY': "Significant price deviation often results from unexpected news, large institutional orders, algorithmic trading cascades, or sudden shifts in market sentiment.",
             'VOLUME_ANOMALY': "Unusual volume spikes typically occur around major news events, earnings releases, derivative expiration, or when large institutional positions are established or unwound.",
