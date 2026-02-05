@@ -1,414 +1,259 @@
-"""
-Analysis Synthesis Module
-Generates insights, signals, and recommendations from pipeline results
-"""
-
-from typing import Dict, List, Any
+import json
+from typing import Dict, List, Optional
 from datetime import datetime
 
-
 class AnalysisSynthesizer:
-    """Synthesizes insights from comprehensive analysis results"""
-    
-    def __init__(self):
-        self.signal_weights = {
-            'sentiment': 0.25,
-            'technical': 0.30,
-            'economic': 0.20,
-            'cot': 0.15,
-            'volume': 0.10
-        }
+    """Synthesizes insights from multiple analysis sections"""
     
     def synthesize(self, results: Dict) -> Dict:
-        """
-        Generate comprehensive insights from all analysis sections
-        
-        Args:
-            results: Full pipeline results dictionary
+        """Generate synthesis from all sections"""
+        try:
+            sections = results.get('sections', {})
+            metadata = results.get('metadata', {})
             
-        Returns:
-            Dictionary with summary, findings, signals, risks, opportunities
-        """
-        insights = {
-            'summary': [],
-            'key_findings': [],
-            'signals': [],
-            'risks': [],
-            'opportunities': [],
-            'confidence_scores': {}
-        }
-        
-        meta = results.get('metadata', {})
-        sections = results.get('sections', {})
-        
-        # Basic summary
-        insights['summary'].append(
-            f"Analyzed {meta.get('event_name', 'market')} on {meta.get('date', 'unknown date')}"
-        )
-        insights['summary'].append(
-            f"Processed {len(meta.get('symbols_analyzed', []))} symbols across {len(sections)} analysis types"
-        )
-        
-        # HF AI Insights
-        hf_insights = self._analyze_hf_methods(sections.get('hf_methods', {}))
-        insights['key_findings'].extend(hf_insights['findings'])
-        insights['signals'].extend(hf_insights['signals'])
-        insights['risks'].extend(hf_insights['risks'])
-        insights['opportunities'].extend(hf_insights['opportunities'])
-        insights['confidence_scores']['sentiment'] = hf_insights.get('confidence', 0)
-        
-        # Technical Indicators
-        tech_insights = self._analyze_technical(sections.get('indicators', {}))
-        insights['signals'].extend(tech_insights['signals'])
-        if tech_insights['bias'] == 'bullish':
-            insights['opportunities'].extend(tech_insights['details'])
-        elif tech_insights['bias'] == 'bearish':
-            insights['risks'].extend(tech_insights['details'])
-        insights['confidence_scores']['technical'] = tech_insights.get('confidence', 0)
-        
-        # Economic Indicators
-        econ_insights = self._analyze_economic(sections.get('economic'))
-        insights['key_findings'].extend(econ_insights['findings'])
-        insights['risks'].extend(econ_insights['risks'])
-        insights['opportunities'].extend(econ_insights['opportunities'])
-        insights['confidence_scores']['economic'] = econ_insights.get('confidence', 0)
-        
-        # COT Positioning
-        cot_insights = self._analyze_cot(sections.get('cot', {}))
-        insights['signals'].extend(cot_insights['signals'])
-        insights['risks'].extend(cot_insights['risks'])
-        
-        # Volume Analysis
-        volume_insights = self._analyze_volume(sections.get('volume', {}))
-        insights['signals'].extend(volume_insights['signals'])
-        
-        # Market Structure
-        structure_insights = self._analyze_structure(sections.get('structure', {}))
-        insights['key_findings'].extend(structure_insights['findings'])
-        
-        # Overall confidence
-        insights['overall_confidence'] = self._calculate_overall_confidence(
-            insights['confidence_scores']
-        )
-        
-        return insights
-    
-    def _analyze_hf_methods(self, hf_data: Dict) -> Dict:
-        """Analyze HF AI method results"""
-        insights = {
-            'findings': [],
-            'signals': [],
-            'risks': [],
-            'opportunities': [],
-            'confidence': 0
-        }
-        
-        if not hf_data:
-            return insights
-        
-        # Sentiment Analysis
-        if 'sentiment' in hf_data:
-            sent = hf_data['sentiment'].get('aggregated', {})
-            sentiment = sent.get('overall_sentiment', 'N/A').upper()
-            confidence = sent.get('confidence', 0)
-            
-            insights['confidence'] = confidence
-            
-            insights['findings'].append(
-                f"AI Sentiment: {sentiment} ({confidence:.1%} confidence)"
-            )
-            
-            if sentiment == 'NEGATIVE' and confidence > 0.6:
-                insights['risks'].append("Strong negative market sentiment detected")
-                insights['signals'].append("BEARISH: Negative sentiment")
-            elif sentiment == 'POSITIVE' and confidence > 0.6:
-                insights['opportunities'].append("Strong positive market sentiment")
-                insights['signals'].append("BULLISH: Positive sentiment")
-            elif confidence < 0.5:
-                insights['risks'].append("Low sentiment confidence - market uncertainty")
-        
-        # Entity Extraction
-        if 'entities' in hf_data:
-            entities = hf_data['entities'].get('aggregated', {})
-            symbol_count = entities.get('symbol_count', 0)
-            
-            if symbol_count > 0:
-                insights['findings'].append(
-                    f"Extracted {symbol_count} financial symbols from news"
-                )
-        
-        # Event Classification
-        if 'classification' in hf_data:
-            classification = hf_data['classification']
-            impact = classification.get('impact_level', 'N/A')
-            
-            insights['findings'].append(f"Event Impact: {impact}")
-            
-            if impact == 'HIGH':
-                insights['risks'].append("High-impact event - expect volatility")
-            elif impact == 'MEDIUM':
-                insights['findings'].append("Medium-impact event")
-        
-        # Q&A Insights
-        if 'qa' in hf_data:
-            qa_results = hf_data['qa']
-            if qa_results:
-                insights['findings'].append(
-                    f"AI answered {len(qa_results)} market questions"
-                )
-        
-        return insights
-    
-    def _analyze_technical(self, indicators: Dict) -> Dict:
-        """Analyze technical indicator signals"""
-        insights = {
-            'signals': [],
-            'details': [],
-            'bias': 'neutral',
-            'confidence': 0
-        }
-        
-        if not indicators:
-            return insights
-        
-        buy_count = sum(1 for ind in indicators.values() if ind.get('overall_signal') == 'BUY')
-        sell_count = sum(1 for ind in indicators.values() if ind.get('overall_signal') == 'SELL')
-        neutral_count = len(indicators) - buy_count - sell_count
-        
-        total = len(indicators)
-        
-        if buy_count > sell_count * 1.5:
-            insights['bias'] = 'bullish'
-            insights['signals'].append(f"BULLISH: {buy_count}/{total} symbols showing buy signals")
-            insights['details'].append(f"{buy_count} bullish technical signals")
-            insights['confidence'] = buy_count / total
-        
-        elif sell_count > buy_count * 1.5:
-            insights['bias'] = 'bearish'
-            insights['signals'].append(f"BEARISH: {sell_count}/{total} symbols showing sell signals")
-            insights['details'].append(f"{sell_count} bearish technical signals")
-            insights['confidence'] = sell_count / total
-        
-        else:
-            insights['signals'].append(f"MIXED: {buy_count} BUY, {sell_count} SELL, {neutral_count} NEUTRAL")
-            insights['confidence'] = 0.3
-        
-        return insights
-    
-    def _analyze_economic(self, econ_data: Dict) -> Dict:
-        """Analyze economic indicator data"""
-        insights = {
-            'findings': [],
-            'risks': [],
-            'opportunities': [],
-            'confidence': 0
-        }
-        
-        if not econ_data:
-            return insights
-        
-        status = econ_data.get('overall_economic_status', 'N/A')
-        insights['findings'].append(f"Economic Status: {status}")
-        
-        # Check if we have actual data
-        has_data = (
-            econ_data.get('interest_rates') is not None or
-            econ_data.get('inflation') is not None or
-            econ_data.get('employment') is not None
-        )
-        
-        if not has_data:
-            insights['confidence'] = 0
-            return insights
-        
-        insights['confidence'] = 0.7
-        
-        if 'RECESSION' in status.upper():
-            insights['risks'].append("Recessionary economic indicators")
-        elif 'EXPANSION' in status.upper():
-            insights['opportunities'].append("Expansionary economic conditions")
-        elif 'STAGFLATION' in status.upper():
-            insights['risks'].append("Stagflation risk detected")
-        
-        # Interest rate insights
-        if econ_data.get('interest_rates'):
-            rates = econ_data['interest_rates']
-            if rates.get('trend') == 'rising':
-                insights['risks'].append("Rising interest rate environment")
-            elif rates.get('trend') == 'falling':
-                insights['opportunities'].append("Declining interest rates")
-        
-        # Inflation insights
-        if econ_data.get('inflation'):
-            inflation = econ_data['inflation']
-            if inflation.get('level', 0) > 3:
-                insights['risks'].append(f"Elevated inflation at {inflation.get('level')}%")
-        
-        return insights
-    
-    def _analyze_cot(self, cot_data: Dict) -> Dict:
-        """Analyze COT positioning data"""
-        insights = {
-            'signals': [],
-            'risks': []
-        }
-        
-        if not cot_data:
-            return insights
-        
-        for symbol, positioning in cot_data.items():
-            net_position = positioning.get('net_positioning', 0)
-            
-            if abs(net_position) > 50000:
-                if net_position > 0:
-                    insights['signals'].append(f"{symbol}: Strong NET LONG positioning")
-                else:
-                    insights['signals'].append(f"{symbol}: Strong NET SHORT positioning")
-            
-            extreme = positioning.get('extreme_positioning', False)
-            if extreme:
-                insights['risks'].append(f"{symbol}: Extreme positioning - reversal risk")
-        
-        return insights
-    
-    def _analyze_volume(self, volume_data: Dict) -> Dict:
-        """Analyze volume patterns"""
-        insights = {'signals': []}
-        
-        if not volume_data:
-            return insights
-        
-        for symbol, vol in volume_data.items():
-            if vol.get('volume_spike', False):
-                insights['signals'].append(f"{symbol}: Volume spike detected")
-            
-            if vol.get('unusual_volume', False):
-                insights['signals'].append(f"{symbol}: Unusual volume activity")
-        
-        return insights
-    
-    def _analyze_structure(self, structure_data: Dict) -> Dict:
-        """Analyze market structure"""
-        insights = {'findings': []}
-        
-        if not structure_data:
-            return insights
-        
-        for symbol, structure in structure_data.items():
-            trend = structure.get('trend', 'N/A')
-            strength = structure.get('trend_strength', 0)
-            
-            if strength > 0.7:
-                insights['findings'].append(
-                    f"{symbol}: Strong {trend} trend (strength: {strength:.2f})"
-                )
-        
-        return insights
-    
-    def _calculate_overall_confidence(self, scores: Dict) -> float:
-        """Calculate weighted overall confidence score"""
-        total_weight = 0
-        weighted_sum = 0
-        
-        for component, score in scores.items():
-            weight = self.signal_weights.get(component, 0.1)
-            weighted_sum += score * weight
-            total_weight += weight
-        
-        if total_weight == 0:
-            return 0.0
-        
-        return weighted_sum / total_weight
-    
-    def generate_markdown_summary(self, insights: Dict, metadata: Dict) -> str:
-        """Generate markdown summary of insights"""
-        lines = [
-            "# Analysis Insights",
-            "",
-            f"**Date:** {metadata.get('date', 'N/A')}",
-            f"**Event:** {metadata.get('event_name', 'Market Analysis')}",
-            f"**Overall Confidence:** {insights.get('overall_confidence', 0):.1%}",
-            "",
-            "---",
-            "",
-            "## Executive Summary",
-            ""
-        ]
-        
-        for item in insights.get('summary', []):
-            lines.append(f"- {item}")
-        
-        lines.extend(["", "## Key Findings", ""])
-        for finding in insights.get('key_findings', []):
-            lines.append(f"- **{finding}**")
-        
-        if insights.get('signals'):
-            lines.extend(["", "## Signals", ""])
-            for signal in insights['signals']:
-                lines.append(f"- 📊 {signal}")
-        
-        if insights.get('opportunities'):
-            lines.extend(["", "## Opportunities", ""])
-            for opp in insights['opportunities']:
-                lines.append(f"- 💡 {opp}")
-        
-        if insights.get('risks'):
-            lines.extend(["", "## Risks", ""])
-            for risk in insights['risks']:
-                lines.append(f"- ⚠️ {risk}")
-        
-        if insights.get('confidence_scores'):
-            lines.extend(["", "## Confidence Scores", ""])
-            for component, score in insights['confidence_scores'].items():
-                lines.append(f"- {component.title()}: {score:.1%}")
-        
-        return '\n'.join(lines)
-
-
-if __name__ == "__main__":
-    print("="*80)
-    print("SYNTHESIS MODULE TEST")
-    print("="*80)
-    
-    # Mock results
-    mock_results = {
-        'metadata': {
-            'date': '2024-11-01',
-            'event_name': 'Non-Farm Payrolls',
-            'symbols_analyzed': ['EURUSD=X', 'GC=F', '^GSPC']
-        },
-        'sections': {
-            'hf_methods': {
-                'sentiment': {
-                    'aggregated': {
-                        'overall_sentiment': 'positive',
-                        'confidence': 0.85
-                    }
-                }
-            },
-            'indicators': {
-                'EURUSD=X': {'overall_signal': 'BUY'},
-                'GC=F': {'overall_signal': 'BUY'},
-                '^GSPC': {'overall_signal': 'NEUTRAL'}
+            synthesis = {
+                'key_findings': [],
+                'overall_confidence': 0.5,
+                'market_sentiment': 'NEUTRAL',
+                'risk_level': 'MODERATE',
+                'recommendations': [],
+                'data_quality': self._assess_data_quality(sections)
             }
+            
+            # Extract findings from news
+            news = sections.get('news', {})
+            if news and news.get('article_count', 0) > 0:
+                synthesis['key_findings'].append({
+                    'finding': f"Analyzed {news['article_count']} news articles",
+                    'importance': 'high',
+                    'source': 'news_analysis'
+                })
+                
+                if news.get('key_themes'):
+                    themes = ', '.join(news['key_themes'][:3])
+                    synthesis['key_findings'].append({
+                        'finding': f"Key themes identified: {themes}",
+                        'importance': 'medium',
+                        'source': 'news_analysis'
+                    })
+            
+            # Extract findings from technical indicators
+            indicators = sections.get('indicators', {})
+            if indicators and indicators.get('symbols_analyzed', 0) > 0:
+                bias = indicators.get('overall_bias', 'NEUTRAL')
+                buy_signals = indicators.get('buy_signals', 0)
+                sell_signals = indicators.get('sell_signals', 0)
+                
+                synthesis['key_findings'].append({
+                    'finding': f"Technical indicators show {bias} bias ({buy_signals} BUY vs {sell_signals} SELL)",
+                    'importance': 'high',
+                    'source': 'technical_analysis'
+                })
+                
+                if bias == 'BULLISH':
+                    synthesis['market_sentiment'] = 'BULLISH'
+                elif bias == 'BEARISH':
+                    synthesis['market_sentiment'] = 'BEARISH'
+            
+            # Extract findings from COT
+            cot = sections.get('cot', {})
+            if cot and cot.get('symbols_analyzed', 0) > 0:
+                synthesis['key_findings'].append({
+                    'finding': f"COT data analyzed for {cot['symbols_analyzed']} instruments",
+                    'importance': 'medium',
+                    'source': 'positioning'
+                })
+            
+            # Extract findings from correlations
+            corr = sections.get('correlations', {})
+            if corr and corr.get('key_relationships'):
+                strong_corrs = [k for k, v in corr['key_relationships'].items() 
+                               if v.get('strength') == 'STRONG']
+                if strong_corrs:
+                    synthesis['key_findings'].append({
+                        'finding': f"Strong correlations found: {', '.join(strong_corrs[:2])}",
+                        'importance': 'medium',
+                        'source': 'correlation_analysis'
+                    })
+            
+            # Extract findings from economic indicators
+            econ = sections.get('economic', {})
+            if econ:
+                status = econ.get('overall_status', 'MODERATE')
+                synthesis['key_findings'].append({
+                    'finding': f"Economic environment: {status}",
+                    'importance': 'high',
+                    'source': 'economic_data'
+                })
+                
+                if status == 'WEAK':
+                    synthesis['risk_level'] = 'HIGH'
+                elif status == 'STRONG':
+                    synthesis['risk_level'] = 'LOW'
+            
+            # Extract findings from market structure
+            structure = sections.get('structure', {})
+            if structure and structure.get('symbols_analyzed', 0) > 0:
+                regime = structure.get('overall_market_regime', 'MIXED')
+                synthesis['key_findings'].append({
+                    'finding': f"Market regime: {regime}",
+                    'importance': 'medium',
+                    'source': 'market_structure'
+                })
+            
+            # Extract findings from HF methods
+            hf = sections.get('hf_methods', {})
+            if hf and hf.get('methods_run', 0) > 0:
+                synthesis['key_findings'].append({
+                    'finding': f"AI analysis completed: {hf['methods_run']} methods, {hf.get('insights_count', 0)} insights",
+                    'importance': 'high',
+                    'source': 'ai_analysis'
+                })
+            
+            # Generate recommendations
+            synthesis['recommendations'] = self._generate_recommendations(synthesis, sections)
+            
+            # Calculate overall confidence
+            synthesis['overall_confidence'] = self._calculate_confidence(sections)
+            
+            return synthesis
+            
+        except Exception as e:
+            print(f"Error in synthesis: {e}")
+            return {
+                'key_findings': [],
+                'overall_confidence': 0.0,
+                'market_sentiment': 'UNKNOWN',
+                'risk_level': 'UNKNOWN',
+                'recommendations': [],
+                'error': str(e)
+            }
+    
+    def _assess_data_quality(self, sections: Dict) -> Dict:
+        """Assess quality of data across sections"""
+        quality = {
+            'sections_completed': 0,
+            'sections_total': 8,
+            'data_completeness': 0.0,
+            'issues': []
         }
-    }
+        
+        expected_sections = ['news', 'cot', 'indicators', 'correlations', 
+                           'economic', 'structure', 'seasonality', 'volume']
+        
+        for section in expected_sections:
+            if sections.get(section):
+                quality['sections_completed'] += 1
+        
+        quality['data_completeness'] = quality['sections_completed'] / quality['sections_total']
+        
+        if quality['data_completeness'] < 0.5:
+            quality['issues'].append("Less than 50% of data sections available")
+        
+        return quality
     
-    synthesizer = AnalysisSynthesizer()
-    insights = synthesizer.synthesize(mock_results)
+    def _generate_recommendations(self, synthesis: Dict, sections: Dict) -> List[Dict]:
+        """Generate actionable recommendations"""
+        recommendations = []
+        
+        sentiment = synthesis.get('market_sentiment', 'NEUTRAL')
+        risk = synthesis.get('risk_level', 'MODERATE')
+        
+        if sentiment == 'BULLISH' and risk == 'LOW':
+            recommendations.append({
+                'action': 'Consider long positions',
+                'confidence': 'moderate',
+                'timeframe': 'short-term'
+            })
+        elif sentiment == 'BEARISH' and risk == 'HIGH':
+            recommendations.append({
+                'action': 'Consider defensive positioning',
+                'confidence': 'moderate',
+                'timeframe': 'short-term'
+            })
+        else:
+            recommendations.append({
+                'action': 'Maintain balanced portfolio',
+                'confidence': 'high',
+                'timeframe': 'short-term'
+            })
+        
+        # Add specific recommendations based on correlations
+        corr = sections.get('correlations', {})
+        if corr and corr.get('key_relationships'):
+            for rel_name, rel_data in list(corr['key_relationships'].items())[:2]:
+                if rel_data.get('strength') == 'STRONG':
+                    recommendations.append({
+                        'action': f"Monitor {rel_name} relationship",
+                        'confidence': 'high',
+                        'timeframe': 'ongoing'
+                    })
+        
+        return recommendations
     
-    print("\nGenerated Insights:")
-    print("-"*80)
-    print(f"Summary: {len(insights['summary'])} items")
-    print(f"Findings: {len(insights['key_findings'])} items")
-    print(f"Signals: {len(insights['signals'])} items")
-    print(f"Overall Confidence: {insights['overall_confidence']:.1%}")
+    def _calculate_confidence(self, sections: Dict) -> float:
+        """Calculate overall confidence score"""
+        weights = {
+            'news': 0.2,
+            'indicators': 0.2,
+            'cot': 0.15,
+            'economic': 0.15,
+            'correlations': 0.1,
+            'structure': 0.1,
+            'hf_methods': 0.1
+        }
+        
+        confidence = 0.0
+        
+        for section, weight in weights.items():
+            if sections.get(section):
+                data = sections[section]
+                
+                # Check data quality for each section
+                if section == 'news' and data.get('article_count', 0) > 5:
+                    confidence += weight
+                elif section == 'indicators' and data.get('symbols_analyzed', 0) > 3:
+                    confidence += weight
+                elif section == 'cot' and data.get('symbols_analyzed', 0) > 0:
+                    confidence += weight
+                elif section in ['economic', 'correlations', 'structure'] and data:
+                    confidence += weight * 0.8
+                elif section == 'hf_methods' and data.get('methods_run', 0) > 3:
+                    confidence += weight
+        
+        return round(confidence, 2)
     
-    markdown = synthesizer.generate_markdown_summary(insights, mock_results['metadata'])
-    print("\nMarkdown Preview:")
-    print("-"*80)
-    print(markdown[:500])
-    
-    print("\n" + "="*80)
-    print("✓ TEST COMPLETE")
-    print("="*80)
+    def generate_markdown_summary(self, synthesis: Dict, metadata: Dict) -> str:
+        """Generate markdown summary"""
+        md = f"""# Analysis Summary
+        
+**Date:** {metadata.get('date')}  
+**Event:** {metadata.get('event_name', 'Market Analysis')}  
+**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+## Executive Summary
+
+**Market Sentiment:** {synthesis.get('market_sentiment', 'NEUTRAL')}  
+**Risk Level:** {synthesis.get('risk_level', 'MODERATE')}  
+**Confidence:** {synthesis.get('overall_confidence', 0.5):.0%}
+
+## Key Findings
+
+"""
+        
+        for i, finding in enumerate(synthesis.get('key_findings', []), 1):
+            importance = finding.get('importance', 'medium')
+            emoji = '🔴' if importance == 'high' else '🟡' if importance == 'medium' else '🟢'
+            md += f"{i}. {emoji} {finding.get('finding', '')}\n"
+        
+        md += "\n## Recommendations\n\n"
+        
+        for i, rec in enumerate(synthesis.get('recommendations', []), 1):
+            md += f"{i}. **{rec.get('action')}** (Confidence: {rec.get('confidence')}, Timeframe: {rec.get('timeframe')})\n"
+        
+        md += "\n## Data Quality\n\n"
+        quality = synthesis.get('data_quality', {})
+        md += f"- Sections Completed: {quality.get('sections_completed', 0)}/{quality.get('sections_total', 8)}\n"
+        md += f"- Completeness: {quality.get('data_completeness', 0):.0%}\n"
+        
+        return md
