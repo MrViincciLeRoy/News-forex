@@ -65,9 +65,7 @@ jobs:
         results = pipeline.analyze(
             date='${{ github.event.inputs.date }}',
             event_name='${{ github.event.inputs.event_name }}' or None,
-            symbols=symbols,
-            use_hf_methods=True,
-            generate_visuals=True
+            symbols=symbols
         )
         
         markdown = pipeline.generate_markdown_report(results)
