@@ -100,6 +100,9 @@ class EconomicIndicatorIntegration:
         if fed_funds is None or treasury_10y is None or treasury_2y is None:
             return None
         
+        if len(fed_funds) == 0 or len(treasury_10y) == 0 or len(treasury_2y) == 0:
+            return None
+        
         current_fed = fed_funds['value'].iloc[-1]
         current_10y = treasury_10y['value'].iloc[-1]
         current_2y = treasury_2y['value'].iloc[-1]
@@ -125,12 +128,24 @@ class EconomicIndicatorIntegration:
         if cpi is None or core_cpi is None:
             return None
         
-        cpi_yoy = ((cpi['value'].iloc[-1] - cpi['value'].iloc[-13]) / cpi['value'].iloc[-13]) * 100
-        core_cpi_yoy = ((core_cpi['value'].iloc[-1] - core_cpi['value'].iloc[-13]) / core_cpi['value'].iloc[-13]) * 100
+        if len(cpi) < 14 or len(core_cpi) < 14:
+            print(f"Insufficient data: CPI has {len(cpi)} rows, Core CPI has {len(core_cpi)} rows")
+            return None
         
-        cpi_mom = ((cpi['value'].iloc[-1] - cpi['value'].iloc[-2]) / cpi['value'].iloc[-2]) * 100
+        # Calculate year-over-year change (use available data if less than 13 months)
+        yoy_index = min(13, len(cpi) - 1)
+        cpi_yoy = ((cpi['value'].iloc[-1] - cpi['value'].iloc[-yoy_index]) / cpi['value'].iloc[-yoy_index]) * 100
+        core_cpi_yoy = ((core_cpi['value'].iloc[-1] - core_cpi['value'].iloc[-yoy_index]) / core_cpi['value'].iloc[-yoy_index]) * 100
         
-        trend_recent = cpi['value'].iloc[-6:].pct_change().mean() * 100
+        # Calculate month-over-month change
+        if len(cpi) >= 2:
+            cpi_mom = ((cpi['value'].iloc[-1] - cpi['value'].iloc[-2]) / cpi['value'].iloc[-2]) * 100
+        else:
+            cpi_mom = 0
+        
+        # Calculate trend using recent data (use available data if less than 6 months)
+        trend_window = min(6, len(cpi))
+        trend_recent = cpi['value'].iloc[-trend_window:].pct_change().mean() * 100
         
         return {
             'cpi_yoy': round(cpi_yoy, 2),
@@ -148,6 +163,9 @@ class EconomicIndicatorIntegration:
         payrolls = self.fetch_fred_data('PAYEMS', start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
         
         if unemployment is None or payrolls is None:
+            return None
+        
+        if len(unemployment) < 2 or len(payrolls) < 2:
             return None
         
         current_unemp = unemployment['value'].iloc[-1]
@@ -178,10 +196,16 @@ class EconomicIndicatorIntegration:
         if indicator_data is None or asset_data is None:
             return None
         
+        if len(indicator_data) == 0 or len(asset_data) == 0:
+            return None
+        
         merged = pd.DataFrame({
             'indicator': indicator_data['value'],
             'asset': asset_data
         }).dropna()
+        
+        if len(merged) < 2:
+            return None
         
         correlation = merged['indicator'].corr(merged['asset'])
         
@@ -234,6 +258,8 @@ if __name__ == "__main__":
         print(f"  10Y Treasury: {snapshot['interest_rates']['treasury_10y']}%")
         print(f"  Yield Curve: {snapshot['interest_rates']['yield_curve_spread']}% ({snapshot['interest_rates']['yield_curve_status']})")
         print(f"  Recession Risk: {snapshot['interest_rates']['recession_risk']}")
+    else:
+        print("\nInterest Rates: Data unavailable")
     
     if snapshot['inflation']:
         print("\nInflation:")
@@ -241,12 +267,16 @@ if __name__ == "__main__":
         print(f"  Core CPI (YoY): {snapshot['inflation']['core_cpi_yoy']}%")
         print(f"  Trend: {snapshot['inflation']['trend']}")
         print(f"  Status: {snapshot['inflation']['inflation_status']}")
+    else:
+        print("\nInflation: Data unavailable")
     
     if snapshot['employment']:
         print("\nEmployment:")
         print(f"  Unemployment: {snapshot['employment']['unemployment_rate']}%")
         print(f"  Payroll Change: {snapshot['employment']['payroll_change_monthly']:,}")
         print(f"  Trend: {snapshot['employment']['employment_trend']}")
+    else:
+        print("\nEmployment: Data unavailable")
     
     print(f"\nOverall Economic Status: {snapshot['overall_economic_status']}")
     
@@ -263,3 +293,5 @@ if __name__ == "__main__":
     for corr in correlations:
         if corr:
             print(f"\n{corr['indicator']} vs {corr['asset']}: {corr['correlation']:.3f} ({corr['relationship']}, {corr['strength']})")
+        else:
+            print(f"\nCorrelation data unavailable")
