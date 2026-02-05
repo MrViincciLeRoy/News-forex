@@ -1,0 +1,90 @@
+name: Test SERP News Fetcher
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: 'Search query'
+        required: false
+        default: 'Non-Farm Payrolls'
+      date:
+        description: 'Date (YYYY-MM-DD)'
+        required: false
+        default: '2024-11-01'
+      max_articles:
+        description: 'Max articles'
+        required: false
+        default: '10'
+      full_content:
+        description: 'Extract full content (true/false)'
+        required: false
+        default: 'true'
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'serp_news_fetcher.py'
+      - 'api_key_manager.py'
+  pull_request:
+    branches: [ main, master ]
+  schedule:
+    - cron: '0 8 * * 1'
+
+jobs:
+  test-serp-fetcher:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        pip install requests beautifulsoup4
+    
+    - name: Test SERP News Fetcher (default)
+      if: github.event_name != 'workflow_dispatch'
+      env:
+        SERP_API_KEY_1: ${{ secrets.SERP_API_KEY_1 }}
+        SERP_API_KEY_2: ${{ secrets.SERP_API_KEY_2 }}
+        SERP_API_KEY_3: ${{ secrets.SERP_API_KEY_3 }}
+      run: |
+        python serp_news_fetcher.py
+    
+    - name: Test SERP News Fetcher (custom)
+      if: github.event_name == 'workflow_dispatch'
+      env:
+        SERP_API_KEY_1: ${{ secrets.SERP_API_KEY_1 }}
+        SERP_API_KEY_2: ${{ secrets.SERP_API_KEY_2 }}
+        SERP_API_KEY_3: ${{ secrets.SERP_API_KEY_3 }}
+      run: |
+        python -c "
+        from serp_news_fetcher import SerpNewsFetcher
+        
+        fetcher = SerpNewsFetcher()
+        
+        results = fetcher.fetch_comprehensive_news(
+            query='${{ github.event.inputs.query }}',
+            date='${{ github.event.inputs.date }}',
+            max_articles=int('${{ github.event.inputs.max_articles }}'),
+            full_content='${{ github.event.inputs.full_content }}' == 'true'
+        )
+        
+        fetcher.save_results(results)
+        
+        print(f'\n✓ Complete: {results[\"statistics\"][\"total_found\"]} articles')
+        "
+    
+    - name: Upload results
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: serp-news-results
+        path: |
+          news_*.json
+          news_*.csv
+        retention-days: 30

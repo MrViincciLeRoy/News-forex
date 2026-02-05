@@ -1,0 +1,45 @@
+name: Test API Key Manager
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'api_key_manager.py'
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test-key-manager:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Test API Key Manager
+      env:
+        SERP_API_KEY_1: ${{ secrets.SERP_API_KEY_1 }}
+        SERP_API_KEY_2: ${{ secrets.SERP_API_KEY_2 }}
+        SERP_API_KEY_3: ${{ secrets.SERP_API_KEY_3 }}
+        ALPHA_VANTAGE_API_KEY_1: ${{ secrets.ALPHA_VANTAGE_API_KEY_1 }}
+        ALPHA_VANTAGE_API_KEY_2: ${{ secrets.ALPHA_VANTAGE_API_KEY_2 }}
+        FRED_API_KEY_1: ${{ secrets.FRED_API_KEY_1 }}
+        FRED_API_KEY_2: ${{ secrets.FRED_API_KEY_2 }}
+        NEWSAPI_KEY_1: ${{ secrets.NEWSAPI_KEY_1 }}
+        BING_NEWS_KEY_1: ${{ secrets.BING_NEWS_KEY_1 }}
+      run: |
+        python api_key_manager.py
+    
+    - name: Upload state file
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: api-key-state
+        path: api_key_state.json
+        retention-days: 7
