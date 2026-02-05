@@ -6,6 +6,7 @@ Delegates responsibilities to specialized modules
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+from typing import Dict, List, Optional
 import json
 import os
 import sys
@@ -184,7 +185,7 @@ class ComprehensivePipeline:
         except ImportError:
             print("\n⊘ HF models not available")
     
-    def analyze(self, date: str, event_name: str = None, symbols: List[str] = None) -> Dict:
+    def analyze(self, date: str, event_name: Optional[str] = None, symbols: Optional[List[str]] = None) -> Dict:
         """
         Run comprehensive analysis
         
@@ -301,7 +302,7 @@ class ComprehensivePipeline:
         
         return results
     
-    def _fetch_news(self, date: str, event_name: str) -> Dict:
+    def _fetch_news(self, date: str, event_name: Optional[str]) -> Dict:
         """Fetch news articles"""
         articles = []
         
@@ -342,7 +343,7 @@ class ComprehensivePipeline:
         
         return results
     
-    def _extract_symbols(self, news_results: Dict, event_name: str) -> List[str]:
+    def _extract_symbols(self, news_results: Dict, event_name: Optional[str]) -> List[str]:
         """Extract symbols from news and event"""
         symbols = set()
         
@@ -426,7 +427,7 @@ class ComprehensivePipeline:
         print(f"  ✓ {len(results)} symbols")
         return results
     
-    def _analyze_economic(self, date: str) -> Dict:
+    def _analyze_economic(self, date: str) -> Optional[Dict]:
         """Analyze economic indicators"""
         if not self.econ_indicators:
             print("  ⊘ Not available")
@@ -494,7 +495,7 @@ class ComprehensivePipeline:
         print(f"  ✓ {len(results)} symbols")
         return results
     
-    def _run_hf_analysis(self, date: str, event_name: str, news_results: Dict, symbols: List[str]) -> Dict:
+    def _run_hf_analysis(self, date: str, event_name: Optional[str], news_results: Dict, symbols: List[str]) -> Dict:
         """Run HF AI analysis"""
         hf_results = {}
         articles = news_results.get('articles', [])
@@ -523,7 +524,7 @@ class ComprehensivePipeline:
         
         return hf_results
     
-    def _save_results(self, results: Dict, date: str, event_name: str) -> str:
+    def _save_results(self, results: Dict, date: str, event_name: Optional[str]) -> str:
         """Save results to file"""
         date_clean = date.replace('-', '_')
         event_clean = (event_name or 'analysis').replace(' ', '_').lower()
