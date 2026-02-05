@@ -1,6 +1,6 @@
 """
 AI-Powered Comprehensive Report Generator using Groq API
-Uses Qwen2.5-72B model to analyze pipeline results and generate detailed HTML reports
+Uses Qwen3-32B model to analyze pipeline results and generate detailed HTML reports
 """
 
 import json
@@ -18,35 +18,17 @@ class GroqAIReportGenerator:
     """
     
     def __init__(self, groq_api_key=None):
-        """
-        Initialize with Groq API key
-        
-        Args:
-            groq_api_key: Groq API key (or set GROQ_API_KEY env var)
-        """
         self.api_key = groq_api_key or os.environ.get('GROQ_API_KEY')
         if not self.api_key:
             raise ValueError("GROQ_API_KEY not found. Set environment variable or pass as parameter.")
         
-        self.api_url = "https://api.groq.com/openai/v1/chat/completions"
-        # Qwen2.5-72B is the most powerful free tier model on Groq
-        self.model = "qwen2.5-72b-versatile"
+        self.api_url = "https://api.groq.com/v1/chat/completions"
+        self.model = "qwen/qwen3-32b"
         
-        # Rate limits for free tier
-        self.max_tokens_per_request = 8000  # Qwen allows up to 32k but we'll be conservative
+        self.max_tokens_per_request = 8000
         self.requests_per_minute = 30
     
     def _call_groq_api(self, messages, max_tokens=8000):
-        """
-        Call Groq API with rate limiting
-        
-        Args:
-            messages: List of message dicts with 'role' and 'content'
-            max_tokens: Maximum tokens in response
-            
-        Returns:
-            API response text
-        """
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -77,17 +59,6 @@ class GroqAIReportGenerator:
             return None
     
     def analyze_section(self, section_name, section_data, context=""):
-        """
-        Use AI to analyze a specific section of the pipeline results
-        
-        Args:
-            section_name: Name of the section (e.g., 'news', 'sentiment')
-            section_data: The data to analyze
-            context: Additional context about the analysis
-            
-        Returns:
-            AI-generated analysis as HTML
-        """
         prompt = f"""You are a financial market analyst reviewing comprehensive market analysis data.
 
 Analyze the following {section_name.upper()} section data and provide:
@@ -100,7 +71,7 @@ Analyze the following {section_name.upper()} section data and provide:
 Context: {context}
 
 Data:
-{json.dumps(section_data, indent=2)[:4000]}  # Limit to avoid token limits
+{json.dumps(section_data, indent=2)[:4000]}
 
 Provide your analysis in well-structured HTML format using Bootstrap classes:
 - Use <h4> for subsection headers
@@ -131,17 +102,6 @@ Generate ONLY the HTML content, no markdown wrappers."""
         return analysis
     
     def generate_comprehensive_report(self, json_file, output_html=None, viz_dir=None):
-        """
-        Generate a comprehensive HTML report from pipeline JSON results
-        
-        Args:
-            json_file: Path to comprehensive pipeline JSON results
-            output_html: Output HTML file path (default: based on json_file)
-            viz_dir: Directory containing visualization images
-            
-        Returns:
-            Path to generated HTML file
-        """
         print("="*80)
         print("AI-POWERED COMPREHENSIVE REPORT GENERATOR")
         print("="*80)
@@ -149,20 +109,16 @@ Generate ONLY the HTML content, no markdown wrappers."""
         print(f"Input: {json_file}")
         print("="*80)
         
-        # Load JSON data
         with open(json_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
-        # Set output path
         if output_html is None:
             base_name = Path(json_file).stem
             output_html = str(Path(json_file).parent / f"{base_name}_ai_report.html")
         
-        # Detect visualization directory
         if viz_dir is None:
             viz_dir = Path(json_file).parent / 'visualizations'
         
-        # Get metadata
         metadata = data.get('metadata', {})
         event_name = metadata.get('event_name', 'Market Analysis')
         analysis_date = metadata.get('date', 'N/A')
@@ -170,15 +126,12 @@ Generate ONLY the HTML content, no markdown wrappers."""
         print(f"\n📊 Analyzing: {event_name}")
         print(f"📅 Date: {analysis_date}")
         
-        # Start HTML
         html_parts = [self._get_html_header(event_name, analysis_date)]
         
-        # Generate Executive Summary using AI
         print("\n🤖 Generating Executive Summary...")
         exec_summary = self._generate_executive_summary(data)
         html_parts.append(exec_summary)
         
-        # Analyze each section with AI
         sections = data.get('sections', {})
         
         section_order = [
@@ -205,20 +158,16 @@ Generate ONLY the HTML content, no markdown wrappers."""
                 )
                 html_parts.append(section_html)
         
-        # Add visualizations if available
         if viz_dir and Path(viz_dir).exists():
             print(f"\n🖼️ Adding visualizations...")
             viz_html = self._generate_visualizations_section(viz_dir)
             html_parts.append(viz_html)
         
-        # Add raw data section
         print("\n📋 Adding raw data section...")
         html_parts.append(self._generate_raw_data_section(data))
         
-        # Close HTML
         html_parts.append(self._get_html_footer())
         
-        # Write file
         final_html = '\n'.join(html_parts)
         with open(output_html, 'w', encoding='utf-8') as f:
             f.write(final_html)
@@ -229,9 +178,6 @@ Generate ONLY the HTML content, no markdown wrappers."""
         return output_html
     
     def _generate_executive_summary(self, data):
-        """Generate AI-powered executive summary"""
-        
-        # Prepare condensed data for AI
         summary_data = {
             'metadata': data.get('metadata', {}),
             'synthesis': data.get('sections', {}).get('synthesis', {}),
@@ -289,15 +235,9 @@ Generate ONLY the HTML content for the executive summary section."""
         """
     
     def _generate_section_html(self, section_key, section_title, section_data, metadata):
-        """Generate HTML for a specific section with AI analysis"""
-        
-        # Create context about the analysis
         context = f"Analysis Date: {metadata.get('date')}. Event: {metadata.get('event_name', 'General Market Analysis')}."
         
-        # Get AI analysis
         ai_analysis = self.analyze_section(section_key, section_data, context)
-        
-        # Create charts if applicable
         chart_html = self._create_section_charts(section_key, section_data)
         
         return f"""
@@ -336,8 +276,6 @@ Generate ONLY the HTML content for the executive summary section."""
         """
     
     def _create_section_charts(self, section_key, section_data):
-        """Create Chart.js visualizations for section data"""
-        
         if section_key == 'hf_methods':
             return self._create_sentiment_chart(section_data)
         elif section_key == 'indicators':
@@ -348,8 +286,6 @@ Generate ONLY the HTML content for the executive summary section."""
             return ""
     
     def _create_sentiment_chart(self, hf_data):
-        """Create sentiment distribution chart"""
-        
         sentiment = hf_data.get('sentiment', {}).get('aggregated', {})
         
         if not sentiment:
@@ -397,8 +333,6 @@ Generate ONLY the HTML content for the executive summary section."""
         """
     
     def _create_signals_chart(self, indicators_data):
-        """Create technical signals chart"""
-        
         if not indicators_data:
             return ""
         
@@ -453,12 +387,9 @@ Generate ONLY the HTML content for the executive summary section."""
         """
     
     def _create_economic_chart(self, econ_data):
-        """Create economic indicators status chart"""
-        
         if not econ_data or 'indicator_statuses' not in econ_data:
             return ""
         
-        # Count status types
         statuses = list(econ_data['indicator_statuses'].values())
         strong = statuses.count('STRONG_GROWTH')
         moderate = statuses.count('MODERATE')
@@ -503,8 +434,6 @@ Generate ONLY the HTML content for the executive summary section."""
         """
     
     def _generate_visualizations_section(self, viz_dir):
-        """Add visualization images to report"""
-        
         viz_path = Path(viz_dir)
         images = list(viz_path.glob('*.png'))
         
@@ -513,7 +442,6 @@ Generate ONLY the HTML content for the executive summary section."""
         
         images_html = []
         for img in images:
-            # Convert image to base64
             with open(img, 'rb') as f:
                 img_data = base64.b64encode(f.read()).decode()
             
@@ -546,8 +474,6 @@ Generate ONLY the HTML content for the executive summary section."""
         """
     
     def _generate_raw_data_section(self, data):
-        """Generate collapsible raw data section"""
-        
         return f"""
         <section id="raw-data" class="mb-5">
             <h2 class="mb-4">
@@ -564,8 +490,6 @@ Generate ONLY the HTML content for the executive summary section."""
         """
     
     def _get_html_header(self, title, date):
-        """Generate HTML header with Bootstrap and Chart.js"""
-        
         return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -573,11 +497,8 @@ Generate ONLY the HTML content for the executive summary section."""
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{title} - Comprehensive Analysis Report</title>
     
-    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
-    
-    <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     
     <style>
@@ -636,7 +557,7 @@ Generate ONLY the HTML content for the executive summary section."""
             </p>
             <p class="mb-0">
                 <span class="ai-badge">
-                    <i class="bi bi-robot"></i> AI-Powered Report by Qwen2.5-72B
+                    <i class="bi bi-robot"></i> AI-Powered Report by Qwen3-32B
                 </span>
             </p>
             <p class="mt-2 mb-0">
@@ -644,7 +565,6 @@ Generate ONLY the HTML content for the executive summary section."""
             </p>
         </div>
         
-        <!-- Table of Contents -->
         <div class="card mb-5">
             <div class="card-header bg-dark text-white">
                 <h5 class="mb-0"><i class="bi bi-list-ul"></i> Table of Contents</h5>
@@ -675,15 +595,11 @@ Generate ONLY the HTML content for the executive summary section."""
 """
     
     def _get_html_footer(self):
-        """Generate HTML footer"""
-        
         return """
     </div>
     
-    <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     
-    <!-- Smooth scrolling -->
     <script>
         document.querySelectorAll('a[href^="#"]').forEach(anchor => {
             anchor.addEventListener('click', function (e) {
@@ -701,11 +617,8 @@ Generate ONLY the HTML content for the executive summary section."""
 
 
 if __name__ == "__main__":
-    """Test the AI report generator"""
-    
     import sys
     
-    # Check for API key
     if not os.environ.get('GROQ_API_KEY'):
         print("ERROR: GROQ_API_KEY environment variable not set")
         print("\nTo use this tool:")
@@ -714,11 +627,9 @@ if __name__ == "__main__":
         print("3. Run this script again")
         sys.exit(1)
     
-    # Get JSON file from command line or use default
     if len(sys.argv) > 1:
         json_file = sys.argv[1]
     else:
-        # Find most recent comprehensive JSON file
         import glob
         json_files = glob.glob('**/comprehensive_*.json', recursive=True)
         
@@ -728,11 +639,9 @@ if __name__ == "__main__":
             print("  python comprehensive_pipeline.py")
             sys.exit(1)
         
-        # Use most recent
         json_file = max(json_files, key=os.path.getctime)
         print(f"Using most recent file: {json_file}")
     
-    # Generate report
     generator = GroqAIReportGenerator()
     
     try:

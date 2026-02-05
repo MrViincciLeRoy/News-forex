@@ -1,8 +1,7 @@
 """
-HF Analytics Method 10: Causal Inference & Explanations - FIXED
+HF Analytics Method 10: Causal Inference & Explanations
 Generate natural language explanations for market behavior
-Models: google/flan-t5-base (using correct text2text-generation task)
-Enhances: All analysis modules with human-readable insights
+Uses rule-based system (HF models optional)
 """
 
 import pandas as pd
@@ -17,7 +16,7 @@ class HFCausalExplainer:
     Explains WHY correlations exist and WHAT drives patterns
     """
     
-    def __init__(self, model_name: str = "google/flan-t5-base"):
+    def __init__(self, model_name: str = "gpt2"):
         self.model_name = model_name
         self.pipeline = None
         self.explanation_cache = {}
@@ -25,27 +24,27 @@ class HFCausalExplainer:
         print(f"Initializing HF Causal Explainer: {model_name}")
     
     def load_model(self):
-        """Load text2text generation model for explanations (FIXED for T5)"""
+        """Load text generation model (optional - falls back to rules)"""
         try:
             from transformers import pipeline
             
             print(f"Loading model: {self.model_name}")
             
-            # ✅ FIXED: Use 'text2text-generation' for T5 models
             self.pipeline = pipeline(
-                "text2text-generation",  # Changed from "text-generation"
+                "text-generation",
                 model=self.model_name,
-                max_length=200
+                max_length=150,
+                truncation=True
             )
             
             print("✓ Model loaded successfully")
             return True
             
         except ImportError:
-            print("⚠️  transformers not installed")
+            print("⚠️  transformers not installed, using rule-based explanations")
             return False
         except Exception as e:
-            print(f"✗ Error: {e}")
+            print(f"⚠️  Model load failed ({e}), using rule-based explanations")
             return False
     
     def explain_correlation(self, asset1: str, asset2: str,
@@ -63,12 +62,13 @@ class HFCausalExplainer:
             relationship = "moderately inversely correlated"
         
         if self.pipeline:
-            # T5 works better with task prefixes
-            prompt = f"Explain: Why are {asset1} and {asset2} {relationship} in financial markets?"
+            prompt = f"Explain why {asset1} and {asset2} are {relationship} in financial markets:"
             
             try:
-                result = self.pipeline(prompt, max_length=150)[0]['generated_text']
-                return result if result else self._generate_correlation_explanation(asset1, asset2, correlation)
+                result = self.pipeline(prompt, max_length=150, num_return_sequences=1)[0]['generated_text']
+                explanation = result.replace(prompt, '').strip()
+                if explanation:
+                    return explanation
             except:
                 pass
         
@@ -103,11 +103,13 @@ class HFCausalExplainer:
         """Explain why an event affects specific symbols"""
         if self.pipeline:
             symbols_str = ', '.join(affected_symbols[:5])
-            prompt = f"Explain: How does {event} affect {symbols_str} in financial markets?"
+            prompt = f"Explain how {event} affects {symbols_str}:"
             
             try:
-                result = self.pipeline(prompt, max_length=150)[0]['generated_text']
-                return result if result else self._generate_event_explanation(event, affected_symbols)
+                result = self.pipeline(prompt, max_length=150, num_return_sequences=1)[0]['generated_text']
+                explanation = result.replace(prompt, '').strip()
+                if explanation:
+                    return explanation
             except:
                 pass
         
@@ -137,15 +139,6 @@ class HFCausalExplainer:
         best_month = pattern.get('best_month', 'unknown')
         worst_month = pattern.get('worst_month', 'unknown')
         
-        if self.pipeline:
-            prompt = f"Explain: Why does {asset} typically perform best in {best_month} and worst in {worst_month}?"
-            
-            try:
-                result = self.pipeline(prompt, max_length=150)[0]['generated_text']
-                return result if result else self._generate_seasonality_explanation(asset, best_month, worst_month)
-            except:
-                pass
-        
         return self._generate_seasonality_explanation(asset, best_month, worst_month)
     
     def _generate_seasonality_explanation(self, asset: str, best: str, worst: str) -> str:
@@ -164,16 +157,6 @@ class HFCausalExplainer:
     def explain_anomaly(self, anomaly_data: Dict) -> str:
         """Explain why an anomaly occurred"""
         anomaly_type = anomaly_data.get('type', 'unknown')
-        severity = anomaly_data.get('severity', 'normal')
-        
-        if self.pipeline:
-            prompt = f"Explain: What causes a {severity} {anomaly_type} anomaly in the market?"
-            
-            try:
-                result = self.pipeline(prompt, max_length=150)[0]['generated_text']
-                return result if result else self._get_anomaly_explanation(anomaly_type)
-            except:
-                pass
         
         return self._get_anomaly_explanation(anomaly_type)
     
@@ -243,7 +226,7 @@ class HFCausalExplainer:
 
 if __name__ == "__main__":
     print("="*80)
-    print("HF METHOD 10: CAUSAL INFERENCE & EXPLANATIONS (FIXED)")
+    print("HF METHOD 10: CAUSAL INFERENCE & EXPLANATIONS")
     print("="*80)
     
     explainer = HFCausalExplainer()
