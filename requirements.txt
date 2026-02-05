@@ -8,3 +8,4 @@ xlrd
 scipy
 psutil
 feedparser
+bs4
