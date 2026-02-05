@@ -25,7 +25,7 @@ class GroqAIReportGenerator:
         
         self.api_url = "https://api.groq.com/v1/chat/completions"
         # FIXED: Use correct Groq API model name format
-        self.model = "qwen-2.5-32b"  # Changed from "qwen/qwen3-32b"
+        self.model = "qwen/qwen-2.5-32b"  # Changed from "qwen/qwen3-32b"
         
         self.max_tokens_per_request = 8000
         self.requests_per_minute = 30
