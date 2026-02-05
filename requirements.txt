@@ -3,3 +3,5 @@ numpy
 yfinance
 requests
 aiohttp
+openpyxl
+xlrd

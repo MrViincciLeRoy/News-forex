@@ -2,8 +2,6 @@ import pandas as pd
 import requests
 from datetime import datetime, timedelta
 import io
-import os
-
 
 class COTDataFetcher:
     def __init__(self):
@@ -55,37 +53,51 @@ class COTDataFetcher:
         
         days_since_tuesday = (target_date.weekday() - 1) % 7
         report_tuesday = target_date - timedelta(days=days_since_tuesday)
-        
         release_friday = report_tuesday + timedelta(days=3)
         
         return report_tuesday, release_friday
     
     def fetch_cot_data(self, year, report_type='financial'):
+        """
+        Fetch COT data from CFTC using new Excel format
+        """
         if report_type == 'financial':
-            filename = f"deacot{year}.zip"
+            filenames = [
+                f"FinFutYY.xls",
+                f"FinFut{str(year)[-2:]}.xls",
+                f"f_year.txt"
+            ]
         else:
-            filename = f"deacom{year}.zip"
+            filenames = [
+                f"ComYY.xls",
+                f"Com{str(year)[-2:]}.xls",
+                f"c_year.txt"
+            ]
         
-        url = f"{self.base_url}/{filename}"
-        
-        try:
-            import zipfile
-            
-            response = requests.get(url, timeout=30)
-            if response.status_code == 200:
-                with zipfile.ZipFile(io.BytesIO(response.content)) as z:
-                    txt_files = [f for f in z.namelist() if f.endswith('.txt')]
-                    if txt_files:
-                        with z.open(txt_files[0]) as f:
-                            df = pd.read_csv(f)
+        for filename in filenames:
+            url = f"{self.base_url}/{filename}"
+            try:
+                response = requests.get(url, timeout=30)
+                if response.status_code == 200:
+                    try:
+                        if filename.endswith('.txt'):
+                            df = pd.read_csv(io.StringIO(response.text))
+                        else:
+                            df = pd.read_excel(io.BytesIO(response.content))
+                        
+                        if 'Report_Date_as_YYYY-MM-DD' in df.columns:
                             df['Report_Date_as_YYYY-MM-DD'] = pd.to_datetime(df['Report_Date_as_YYYY-MM-DD'])
-                            return df
-            else:
-                print(f"Failed to fetch {year} data: {response.status_code}")
-                return None
-        except Exception as e:
-            print(f"Error fetching {year} data: {e}")
-            return None
+                            df_year = df[df['Report_Date_as_YYYY-MM-DD'].dt.year == year]
+                            if not df_year.empty:
+                                print(f"✓ Loaded {len(df_year)} records for {year} from {filename}")
+                                return df_year
+                    except Exception as parse_error:
+                        continue
+            except:
+                continue
+        
+        print(f"✗ Could not fetch {year} data from CFTC")
+        return None
     
     def get_symbol_data(self, symbol, start_date, end_date=None, report_type='financial'):
         if symbol.upper() not in self.cftc_codes:
@@ -245,7 +257,7 @@ if __name__ == "__main__":
     fetcher = COTDataFetcher()
     
     print("="*80)
-    print("COT DATA FETCHER - Testing")
+    print("COT DATA FETCHER - Testing with Fixed URLs")
     print("="*80)
     
     symbols = ['EUR', 'GOLD', 'CRUDE_OIL']
@@ -288,20 +300,6 @@ if __name__ == "__main__":
                 print(f"  Smart Money: {positioning['analysis']['smart_money_net_pct']}% of OI")
         else:
             print(f"No data available for {symbol}")
-    
-    print(f"\n{'='*80}")
-    print("Comparing EUR positioning (2 weeks)")
-    print('='*80)
-    
-    comparison = fetcher.compare_positioning('EUR', '2024-10-15', '2024-10-29')
-    if comparison:
-        print(f"\nFrom: {comparison['from_date']}")
-        print(f"To: {comparison['to_date']}")
-        print(f"\nChanges in Net Positioning:")
-        print(f"  Dealers: {comparison['dealer_net_change']:+,}")
-        print(f"  Asset Managers: {comparison['asset_mgr_net_change']:+,}")
-        print(f"  Hedge Funds: {comparison['leveraged_net_change']:+,}")
-        print(f"\nSentiment: {comparison['sentiment_change']}")
     
     print(f"\n{'='*80}")
     print("Test complete")
