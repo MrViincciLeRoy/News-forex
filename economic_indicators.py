@@ -89,6 +89,8 @@ class EconomicIndicatorIntegration:
     def calculate_interest_rate_differential(self, date=None):
         if date is None:
             date = datetime.now()
+        elif isinstance(date, str):
+            date = pd.to_datetime(date)
         
         start_date = (date - timedelta(days=365)).strftime('%Y-%m-%d')
         end_date = date.strftime('%Y-%m-%d')
@@ -118,9 +120,15 @@ class EconomicIndicatorIntegration:
             'recession_risk': 'HIGH' if yield_curve < -0.5 else ('MEDIUM' if yield_curve < 0 else 'LOW')
         }
     
-    def analyze_inflation_trend(self, lookback_months=12):
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=lookback_months * 30 + 60)
+    def analyze_inflation_trend(self, date=None, lookback_months=12):
+        if date is None:
+            date = datetime.now()
+        elif isinstance(date, str):
+            date = pd.to_datetime(date)
+        
+        # Increase buffer to 120 days to ensure we get enough monthly data
+        start_date = date - timedelta(days=lookback_months * 30 + 120)
+        end_date = date
         
         cpi = self.fetch_fred_data('CPIAUCSL', start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
         core_cpi = self.fetch_fred_data('CPILFESL', start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
@@ -129,7 +137,7 @@ class EconomicIndicatorIntegration:
             return None
         
         if len(cpi) < 14 or len(core_cpi) < 14:
-            print(f"Insufficient data: CPI has {len(cpi)} rows, Core CPI has {len(core_cpi)} rows")
+            print(f"Insufficient data: CPI has {len(cpi)} rows, Core CPI has {len(core_cpi)} rows (need 14+)")
             return None
         
         # Calculate year-over-year change (use available data if less than 13 months)
@@ -155,12 +163,17 @@ class EconomicIndicatorIntegration:
             'inflation_status': 'HIGH' if cpi_yoy > 3 else ('MODERATE' if cpi_yoy > 2 else 'LOW')
         }
     
-    def get_employment_indicators(self):
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=365)
+    def get_employment_indicators(self, date=None):
+        if date is None:
+            date = datetime.now()
+        elif isinstance(date, str):
+            date = pd.to_datetime(date)
         
-        unemployment = self.fetch_fred_data('UNRATE', start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
-        payrolls = self.fetch_fred_data('PAYEMS', start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
+        start_date = (date - timedelta(days=365)).strftime('%Y-%m-%d')
+        end_date = date.strftime('%Y-%m-%d')
+        
+        unemployment = self.fetch_fred_data('UNRATE', start_date, end_date)
+        payrolls = self.fetch_fred_data('PAYEMS', start_date, end_date)
         
         if unemployment is None or payrolls is None:
             return None
@@ -182,16 +195,21 @@ class EconomicIndicatorIntegration:
             'employment_trend': 'IMPROVING' if current_unemp < prev_unemp else 'WEAKENING'
         }
     
-    def correlate_indicator_with_asset(self, indicator_series_id, asset_symbol, lookback_days=365):
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=lookback_days)
+    def correlate_indicator_with_asset(self, indicator_series_id, asset_symbol, date=None, lookback_days=365):
+        if date is None:
+            date = datetime.now()
+        elif isinstance(date, str):
+            date = pd.to_datetime(date)
         
-        indicator_data = self.fetch_fred_data(indicator_series_id, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
+        start_date = (date - timedelta(days=lookback_days)).strftime('%Y-%m-%d')
+        end_date = date.strftime('%Y-%m-%d')
+        
+        indicator_data = self.fetch_fred_data(indicator_series_id, start_date, end_date)
         
         if indicator_series_id == '^VIX':
-            asset_data = self.fetch_market_data(asset_symbol, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
+            asset_data = self.fetch_market_data(asset_symbol, start_date, end_date)
         else:
-            asset_data = self.fetch_market_data(asset_symbol, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
+            asset_data = self.fetch_market_data(asset_symbol, start_date, end_date)
         
         if indicator_data is None or asset_data is None:
             return None
@@ -221,10 +239,20 @@ class EconomicIndicatorIntegration:
             'strength': 'STRONG' if abs(correlation) > 0.7 else ('MODERATE' if abs(correlation) > 0.4 else 'WEAK')
         }
     
-    def get_economic_snapshot(self):
-        interest_rates = self.calculate_interest_rate_differential()
-        inflation = self.analyze_inflation_trend()
-        employment = self.get_employment_indicators()
+    def get_economic_snapshot(self, date=None):
+        """Get economic snapshot for a specific date (default: current date)
+        
+        Args:
+            date: str in format 'YYYY-MM-DD' or datetime object or None for current date
+        """
+        if date is None:
+            date = datetime.now()
+        elif isinstance(date, str):
+            date = pd.to_datetime(date)
+        
+        interest_rates = self.calculate_interest_rate_differential(date)
+        inflation = self.analyze_inflation_trend(date)
+        employment = self.get_employment_indicators(date)
         
         economic_health = []
         
@@ -238,7 +266,7 @@ class EconomicIndicatorIntegration:
         overall_status = 'WEAK' if len(economic_health) >= 2 else ('MODERATE' if len(economic_health) == 1 else 'STRONG')
         
         return {
-            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'timestamp': date.strftime('%Y-%m-%d %H:%M:%S'),
             'interest_rates': interest_rates,
             'inflation': inflation,
             'employment': employment,
@@ -248,13 +276,25 @@ class EconomicIndicatorIntegration:
 
 
 if __name__ == "__main__":
+    import sys
+    
     econ = EconomicIndicatorIntegration()
     
+    # Allow date to be passed as command line argument
+    target_date = None
+    if len(sys.argv) > 1:
+        try:
+            target_date = sys.argv[1]
+            print(f"Analyzing date: {target_date}")
+        except:
+            print("Invalid date format. Using current date.")
+            target_date = None
+    
     print("="*80)
-    print("ECONOMIC INDICATORS SNAPSHOT")
+    print(f"ECONOMIC INDICATORS SNAPSHOT{' - ' + target_date if target_date else ''}")
     print("="*80)
     
-    snapshot = econ.get_economic_snapshot()
+    snapshot = econ.get_economic_snapshot(target_date)
     
     if snapshot['interest_rates']:
         print("\nInterest Rates:")
@@ -289,9 +329,9 @@ if __name__ == "__main__":
     print("="*80)
     
     correlations = [
-        econ.correlate_indicator_with_asset('DGS10', 'GC=F', 365),
-        econ.correlate_indicator_with_asset('CPIAUCSL', 'GC=F', 365),
-        econ.correlate_indicator_with_asset('UNRATE', '^GSPC', 365)
+        econ.correlate_indicator_with_asset('DGS10', 'GC=F', target_date, 365),
+        econ.correlate_indicator_with_asset('CPIAUCSL', 'GC=F', target_date, 365),
+        econ.correlate_indicator_with_asset('UNRATE', '^GSPC', target_date, 365)
     ]
     
     for corr in correlations:
@@ -299,3 +339,11 @@ if __name__ == "__main__":
             print(f"\n{corr['indicator']} vs {corr['asset']}: {corr['correlation']:.3f} ({corr['relationship']}, {corr['strength']})")
         else:
             print(f"\nCorrelation data unavailable")
+    
+    # Example: Query multiple dates
+    if len(sys.argv) <= 1:
+        print("\n" + "="*80)
+        print("TIP: You can query specific dates by running:")
+        print("  python economic_indicators.py 2024-11-01")
+        print("  python economic_indicators.py 2023-06-15")
+        print("="*80)
