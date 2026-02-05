@@ -1,0 +1,53 @@
+name: Test News Fetcher
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'news_fetcher.py'
+  pull_request:
+    branches: [ main, master ]
+  schedule:
+    # Run daily at 6 AM UTC to collect news
+    - cron: '0 6 * * *'
+
+jobs:
+  test-news-fetcher:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+    
+    - name: Test news fetcher
+      run: |
+        python news_fetcher.py
+    
+    - name: Upload news artifacts
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: news-data
+        path: |
+          news_*.json
+          news_*.csv
+        retention-days: 30
+    
+    - name: Display summary
+      if: success()
+      run: |
+        echo "News fetching completed successfully"
+        if [ -f news_events.json ]; then
+          echo "Event news file created"
+          ls -lh news_events.json
+        fi
