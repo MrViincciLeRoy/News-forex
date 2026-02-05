@@ -1,6 +1,9 @@
 """
-Comprehensive Analysis Pipeline - OPTIMIZED for 80% Memory Usage
-Intelligently loads HF models based on available memory
+Comprehensive Analysis Pipeline - FIXED VERSION
+- Better entity extraction
+- Improved data parsing
+- Visualization support
+- Enhanced error handling
 """
 
 import pandas as pd
@@ -202,20 +205,25 @@ class MemoryAwareHFLoader:
 
 
 class ComprehensiveAnalysisPipeline:
-    """Memory-optimized comprehensive pipeline"""
+    """Memory-optimized comprehensive pipeline with better parsing"""
     
-    def __init__(self, output_dir='pipeline_output', enable_hf=True):
+    def __init__(self, output_dir='pipeline_output', enable_hf=True, enable_viz=True):
         self.output_dir = output_dir
-        os.makedirs(output_dir, exist_ok=True)
+        self.viz_dir = os.path.join(output_dir, 'visualizations')
+        os.makedirs(self.output_dir, exist_ok=True)
+        os.makedirs(self.viz_dir, exist_ok=True)
+        
+        self.enable_viz = enable_viz
         
         # Get initial memory state
         mem_start = get_memory_info()
         
         print("="*80)
-        print("COMPREHENSIVE ANALYSIS PIPELINE - MEMORY OPTIMIZED")
+        print("COMPREHENSIVE ANALYSIS PIPELINE - FIXED VERSION")
         print("="*80)
         print(f"System Memory: {mem_start['total_gb']}GB total, {mem_start['available_gb']}GB available")
         print(f"Target Usage: 80% ({mem_start['total_gb'] * 0.80:.1f}GB max)")
+        print(f"Visualizations: {'Enabled' if enable_viz else 'Disabled'}")
         print("="*80)
         
         print("\nInitializing core modules...")
@@ -270,13 +278,29 @@ class ComprehensiveAnalysisPipeline:
         news_results = self._analyze_news(date, event_name)
         results['sections']['news'] = news_results
         
-        if symbols is None and news_results.get('extracted_symbols'):
-            symbols = news_results['extracted_symbols'][:15]
-            print(f"✓ Auto-detected: {', '.join(symbols[:5])}...")
+        # Extract symbols from multiple sources
+        extracted_symbols = set()
+        
+        # From news impact
+        if news_results.get('extracted_symbols'):
+            extracted_symbols.update(news_results['extracted_symbols'])
+        
+        # From news articles (parse titles and content)
+        for article in news_results.get('articles', []):
+            symbols_from_article = self._extract_symbols_from_text(
+                article.get('title', '') + ' ' + article.get('content', '')
+            )
+            extracted_symbols.update(symbols_from_article)
+        
+        if symbols is None and extracted_symbols:
+            symbols = list(extracted_symbols)[:15]
+            print(f"✓ Auto-detected {len(symbols)} symbols: {', '.join(symbols[:5])}...")
         elif symbols is None:
             symbols = ['EURUSD=X', 'GC=F', '^GSPC', 'DX-Y.NYB', 'TLT']
+            print(f"✓ Using default symbols: {', '.join(symbols)}")
         
         results['metadata']['symbols_analyzed'] = symbols
+        results['metadata']['symbols_count'] = len(symbols)
         
         # 2. COT
         print("\n📊 SECTION 2: COT POSITIONING")
@@ -338,6 +362,13 @@ class ComprehensiveAnalysisPipeline:
         synthesis = self._synthesize(results)
         results['sections']['synthesis'] = synthesis
         
+        # 15. VISUALIZATIONS
+        if self.enable_viz:
+            print("\n📊 SECTION 15: VISUALIZATIONS")
+            print("-" * 80)
+            viz_results = self._generate_visualizations(results)
+            results['sections']['visualizations'] = viz_results
+        
         # Save
         report_file = self._save_results(results, date, event_name)
         results['report_file'] = report_file
@@ -348,13 +379,53 @@ class ComprehensiveAnalysisPipeline:
         print("✓ COMPREHENSIVE ANALYSIS COMPLETE")
         print("="*80)
         print(f"Report: {report_file}")
+        print(f"Symbols: {len(symbols)} analyzed")
         print(f"Memory: {mem_final['process_mb']}MB ({mem_final['used_percent']:.1f}% system)")
+        if self.enable_viz and viz_results:
+            print(f"Visualizations: {viz_results.get('charts_created', 0)} charts created")
         print("="*80 + "\n")
         
         return results
     
+    def _extract_symbols_from_text(self, text):
+        """Extract financial symbols from text"""
+        symbols = set()
+        
+        # Common forex pairs
+        forex_patterns = [
+            'EUR/USD', 'GBP/USD', 'USD/JPY', 'USD/CHF', 'AUD/USD', 'USD/CAD', 'NZD/USD',
+            'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD'
+        ]
+        
+        # Convert to Yahoo Finance format
+        symbol_map = {
+            'EUR/USD': 'EURUSD=X', 'EURUSD': 'EURUSD=X',
+            'GBP/USD': 'GBPUSD=X', 'GBPUSD': 'GBPUSD=X',
+            'USD/JPY': 'USDJPY=X', 'USDJPY': 'USDJPY=X',
+            'USD/CHF': 'USDCHF=X', 'USDCHF': 'USDCHF=X',
+            'AUD/USD': 'AUDUSD=X', 'AUDUSD': 'AUDUSD=X',
+            'USD/CAD': 'USDCAD=X', 'USDCAD': 'USDCAD=X',
+            'NZD/USD': 'NZDUSD=X', 'NZDUSD': 'NZDUSD=X',
+            'GOLD': 'GC=F',
+            'SILVER': 'SI=F',
+            'OIL': 'CL=F',
+            'S&P 500': '^GSPC',
+            'DOW': '^DJI',
+            'NASDAQ': '^IXIC',
+            'DOLLAR INDEX': 'DX-Y.NYB',
+            'DXY': 'DX-Y.NYB'
+        }
+        
+        text_upper = text.upper()
+        
+        for pattern, symbol in symbol_map.items():
+            if pattern.upper() in text_upper:
+                symbols.add(symbol)
+        
+        return list(symbols)
+    
     def _analyze_news(self, date, event_name):
-        """News analysis"""
+        """News analysis with better symbol extraction"""
         results = {'articles': [], 'impact_analysis': None, 'extracted_symbols': []}
         
         if not self.news_fetcher:
@@ -445,7 +516,8 @@ class ComprehensiveAnalysisPipeline:
         """Economic indicators"""
         try:
             snapshot = self.econ_indicators.get_economic_snapshot(date)
-            print(f"  ✓ Economic: {snapshot.get('overall_economic_status', 'N/A')}")
+            status = snapshot.get('overall_economic_status', 'N/A')
+            print(f"  ✓ Economic: {status}")
             return snapshot
         except Exception as e:
             print(f"  ⊘ Error: {str(e)[:50]}")
@@ -497,7 +569,7 @@ class ComprehensiveAnalysisPipeline:
         return results
     
     def _run_hf_methods(self, date, event_name, news_results, symbols, indicator_results):
-        """Run HF AI methods"""
+        """Run HF AI methods with better entity extraction"""
         hf_results = {}
         articles = news_results.get('articles', [])
         
@@ -508,18 +580,49 @@ class ComprehensiveAnalysisPipeline:
                 sentiment = analyzer.analyze_news_articles(articles)
                 aggregated = analyzer.aggregate_sentiment(sentiment)
                 hf_results['sentiment'] = {'articles': sentiment, 'aggregated': aggregated}
-                print(f"  ✓ Sentiment: {aggregated.get('overall_sentiment', 'N/A').upper()}")
+                
+                overall = aggregated.get('overall_sentiment', 'N/A').upper()
+                confidence = aggregated.get('confidence', 0)
+                print(f"  ✓ Sentiment: {overall} ({confidence:.1%} confidence)")
             except Exception as e:
                 print(f"  ⊘ Sentiment: {str(e)[:50]}")
         
-        # NER
+        # NER - Enhanced extraction
         if 'ner' in self.hf_models and articles:
             try:
                 extractor = self.hf_models['ner']
                 entities = extractor.analyze_batch(articles)
+                
+                # Manual symbol extraction as fallback
+                manual_symbols = set()
+                for article in articles:
+                    text = article.get('title', '') + ' ' + article.get('content', '')
+                    manual_symbols.update(self._extract_symbols_from_text(text))
+                
+                # Combine NER and manual extraction
                 aggregated = extractor.aggregate_symbols(entities)
-                hf_results['entities'] = {'analyzed': entities, 'aggregated': aggregated}
-                print(f"  ✓ NER: {aggregated.get('symbol_count', 0)} symbols")
+                
+                if manual_symbols:
+                    if 'symbols' not in aggregated:
+                        aggregated['symbols'] = {}
+                    for sym in manual_symbols:
+                        if sym not in aggregated['symbols']:
+                            aggregated['symbols'][sym] = {'count': 1, 'confidence': 0.7}
+                
+                aggregated['symbol_count'] = len(aggregated.get('symbols', {}))
+                
+                hf_results['entities'] = {
+                    'analyzed': entities,
+                    'aggregated': aggregated,
+                    'manual_extraction': list(manual_symbols)
+                }
+                
+                symbol_count = aggregated.get('symbol_count', 0)
+                print(f"  ✓ NER: {symbol_count} symbols extracted")
+                
+                if manual_symbols:
+                    print(f"     Manual extraction: {', '.join(list(manual_symbols)[:5])}")
+                
             except Exception as e:
                 print(f"  ⊘ NER: {str(e)[:50]}")
         
@@ -529,7 +632,10 @@ class ComprehensiveAnalysisPipeline:
                 classifier = self.hf_models['classification']
                 classification = classifier.classify_event(event_name)
                 hf_results['classification'] = classification
-                print(f"  ✓ Classification: {classification.get('impact_level', 'N/A')}")
+                
+                impact = classification.get('impact_level', 'N/A')
+                category = classification.get('category', 'N/A')
+                print(f"  ✓ Classification: {impact} impact, {category} category")
             except Exception as e:
                 print(f"  ⊘ Classification: {str(e)[:50]}")
         
@@ -537,10 +643,22 @@ class ComprehensiveAnalysisPipeline:
         if 'qa' in self.hf_models and articles:
             try:
                 qa = self.hf_models['qa']
-                qa.index_news_impact([news_results.get('impact_analysis')])
-                questions = [f"What happened on {date}?", "What was the market sentiment?"]
+                
+                # Index news impact
+                if news_results.get('impact_analysis'):
+                    qa.index_news_impact([news_results['impact_analysis']])
+                
+                # Ask relevant questions
+                questions = [
+                    f"What happened on {date}?",
+                    f"What was the market sentiment regarding {event_name or 'the event'}?",
+                    "Which symbols were most affected?",
+                    "What was the overall impact on financial markets?"
+                ]
+                
                 qa_results = qa.batch_ask(questions)
                 hf_results['qa'] = qa_results
+                
                 print(f"  ✓ Q&A: {len(qa_results)} questions answered")
             except Exception as e:
                 print(f"  ⊘ Q&A: {str(e)[:50]}")
@@ -548,12 +666,13 @@ class ComprehensiveAnalysisPipeline:
         return hf_results
     
     def _synthesize(self, results):
-        """Synthesize insights"""
+        """Synthesize insights with better formatting"""
         insights = {
             'summary': [],
             'key_findings': [],
             'signals': [],
-            'risks': []
+            'risks': [],
+            'opportunities': []
         }
         
         meta = results['metadata']
@@ -561,36 +680,195 @@ class ComprehensiveAnalysisPipeline:
             f"Analyzed {meta['event_name'] or 'market'} on {meta['date']}"
         )
         insights['summary'].append(
-            f"Processed {len(meta.get('symbols_analyzed', []))} symbols"
+            f"Processed {len(meta.get('symbols_analyzed', []))} symbols using {len(meta.get('hf_models_loaded', []))} AI models"
         )
         
         # HF sentiment
         hf = results['sections'].get('hf_methods', {})
         if hf.get('sentiment'):
             sent = hf['sentiment']['aggregated']
+            sentiment = sent.get('overall_sentiment', 'N/A').upper()
+            confidence = sent.get('confidence', 0)
+            
             insights['key_findings'].append(
-                f"AI Sentiment: {sent.get('overall_sentiment', 'N/A').upper()} ({sent.get('confidence', 0):.1%})"
+                f"AI Sentiment: {sentiment} ({confidence:.1%} confidence)"
             )
+            
+            # Add risk/opportunity based on sentiment
+            if sentiment == 'NEGATIVE':
+                insights['risks'].append("Negative market sentiment detected")
+            elif sentiment == 'POSITIVE':
+                insights['opportunities'].append("Positive market sentiment detected")
+        
+        # Entity extraction
+        if hf.get('entities'):
+            symbol_count = hf['entities']['aggregated'].get('symbol_count', 0)
+            if symbol_count > 0:
+                insights['key_findings'].append(
+                    f"AI extracted {symbol_count} financial instruments from news"
+                )
         
         # Technical signals
         indicators = results['sections'].get('indicators', {})
         if indicators:
             buy_count = sum(1 for ind in indicators.values() if ind.get('overall_signal') == 'BUY')
             sell_count = sum(1 for ind in indicators.values() if ind.get('overall_signal') == 'SELL')
+            neutral_count = len(indicators) - buy_count - sell_count
             
             if buy_count > sell_count:
-                insights['signals'].append(f"Technical: BULLISH ({buy_count}/{len(indicators)})")
+                insights['signals'].append(f"Technical: BULLISH ({buy_count} BUY, {sell_count} SELL, {neutral_count} NEUTRAL)")
+                insights['opportunities'].append(f"{buy_count} symbols showing bullish technical signals")
             elif sell_count > buy_count:
-                insights['signals'].append(f"Technical: BEARISH ({sell_count}/{len(indicators)})")
+                insights['signals'].append(f"Technical: BEARISH ({sell_count} SELL, {buy_count} BUY, {neutral_count} NEUTRAL)")
+                insights['risks'].append(f"{sell_count} symbols showing bearish technical signals")
+            else:
+                insights['signals'].append(f"Technical: NEUTRAL ({neutral_count} symbols)")
         
         # Economic status
         econ = results['sections'].get('economic', {})
         if econ:
-            insights['key_findings'].append(
-                f"Economic Status: {econ.get('overall_economic_status', 'N/A')}"
-            )
+            status = econ.get('overall_economic_status', 'N/A')
+            insights['key_findings'].append(f"Economic Status: {status}")
+            
+            if status == 'RECESSION_WARNING':
+                insights['risks'].append("Economic indicators show recession warning signs")
+            elif status == 'STRONG_GROWTH':
+                insights['opportunities'].append("Economic indicators show strong growth")
+        
+        # Market structure
+        structure = results['sections'].get('structure', {})
+        if structure:
+            trending_count = sum(1 for s in structure.values() if s.get('trend') == 'TRENDING')
+            ranging_count = sum(1 for s in structure.values() if s.get('trend') == 'RANGING')
+            
+            if trending_count > 0:
+                insights['key_findings'].append(f"Market Structure: {trending_count} trending, {ranging_count} ranging")
+        
+        # Volume analysis
+        volume = results['sections'].get('volume', {})
+        if volume:
+            high_volume_count = sum(1 for v in volume.values() if v.get('volume_status') == 'HIGH')
+            if high_volume_count > 0:
+                insights['key_findings'].append(f"Volume: {high_volume_count} symbols with elevated activity")
         
         return insights
+    
+    def _generate_visualizations(self, results):
+        """Generate visualizations from analysis results"""
+        viz_results = {'charts_created': 0, 'chart_files': []}
+        
+        try:
+            import matplotlib
+            matplotlib.use('Agg')  # Non-interactive backend
+            import matplotlib.pyplot as plt
+            import seaborn as sns
+            
+            sns.set_style("whitegrid")
+            
+            # 1. Sentiment Distribution (if available)
+            hf = results['sections'].get('hf_methods', {})
+            if hf.get('sentiment'):
+                sent = hf['sentiment']['aggregated']
+                
+                fig, ax = plt.subplots(figsize=(10, 6))
+                
+                sentiments = ['Positive', 'Negative', 'Neutral']
+                values = [
+                    sent.get('positive_count', 0),
+                    sent.get('negative_count', 0),
+                    sent.get('neutral_count', 0)
+                ]
+                
+                colors = ['#2ecc71', '#e74c3c', '#95a5a6']
+                ax.bar(sentiments, values, color=colors)
+                ax.set_title(f'News Sentiment Distribution\n{results["metadata"]["event_name"] or "Market Analysis"}')
+                ax.set_ylabel('Number of Articles')
+                
+                chart_file = os.path.join(self.viz_dir, 'sentiment_distribution.png')
+                plt.tight_layout()
+                plt.savefig(chart_file, dpi=150, bbox_inches='tight')
+                plt.close()
+                
+                viz_results['charts_created'] += 1
+                viz_results['chart_files'].append(chart_file)
+                print(f"  ✓ Created: sentiment_distribution.png")
+            
+            # 2. Technical Signals Summary
+            indicators = results['sections'].get('indicators', {})
+            if indicators:
+                fig, ax = plt.subplots(figsize=(12, 6))
+                
+                symbols = list(indicators.keys())[:10]  # Top 10
+                signals = [indicators[s].get('overall_signal', 'NEUTRAL') for s in symbols]
+                
+                signal_colors = {'BUY': '#2ecc71', 'SELL': '#e74c3c', 'NEUTRAL': '#95a5a6'}
+                colors = [signal_colors.get(s, '#95a5a6') for s in signals]
+                
+                ax.barh(symbols, [1]*len(symbols), color=colors)
+                ax.set_xlabel('Signal')
+                ax.set_title('Technical Signals by Symbol')
+                ax.set_xlim(0, 1)
+                ax.set_xticks([])
+                
+                # Add legend
+                from matplotlib.patches import Patch
+                legend_elements = [
+                    Patch(facecolor='#2ecc71', label='BUY'),
+                    Patch(facecolor='#e74c3c', label='SELL'),
+                    Patch(facecolor='#95a5a6', label='NEUTRAL')
+                ]
+                ax.legend(handles=legend_elements, loc='lower right')
+                
+                chart_file = os.path.join(self.viz_dir, 'technical_signals.png')
+                plt.tight_layout()
+                plt.savefig(chart_file, dpi=150, bbox_inches='tight')
+                plt.close()
+                
+                viz_results['charts_created'] += 1
+                viz_results['chart_files'].append(chart_file)
+                print(f"  ✓ Created: technical_signals.png")
+            
+            # 3. Economic Status
+            econ = results['sections'].get('economic', {})
+            if econ and econ.get('indicator_statuses'):
+                fig, ax = plt.subplots(figsize=(10, 8))
+                
+                indicators = list(econ['indicator_statuses'].items())
+                names = [i[0].replace('_', ' ').title() for i in indicators]
+                statuses = [i[1] for i in indicators]
+                
+                status_colors = {
+                    'STRONG_GROWTH': '#2ecc71',
+                    'MODERATE': '#f39c12',
+                    'WEAK': '#e74c3c',
+                    'RECESSION_WARNING': '#c0392b',
+                    'NORMAL': '#95a5a6'
+                }
+                colors = [status_colors.get(s, '#95a5a6') for s in statuses]
+                
+                ax.barh(names, [1]*len(names), color=colors)
+                ax.set_xlabel('Status')
+                ax.set_title('Economic Indicators Status')
+                ax.set_xlim(0, 1)
+                ax.set_xticks([])
+                
+                chart_file = os.path.join(self.viz_dir, 'economic_status.png')
+                plt.tight_layout()
+                plt.savefig(chart_file, dpi=150, bbox_inches='tight')
+                plt.close()
+                
+                viz_results['charts_created'] += 1
+                viz_results['chart_files'].append(chart_file)
+                print(f"  ✓ Created: economic_status.png")
+            
+            print(f"\n  ✓ Total: {viz_results['charts_created']} visualizations created")
+            
+        except ImportError:
+            print("  ⊘ Matplotlib not available - skipping visualizations")
+        except Exception as e:
+            print(f"  ⊘ Visualization error: {str(e)[:50]}")
+        
+        return viz_results
     
     def _save_results(self, results, date, event_name):
         """Save results"""
@@ -605,14 +883,15 @@ class ComprehensiveAnalysisPipeline:
         return filename
     
     def generate_markdown_report(self, results):
-        """Generate markdown report"""
+        """Generate enhanced markdown report"""
         lines = [
             "# COMPREHENSIVE MARKET ANALYSIS",
             "",
             f"**Date:** {results['metadata']['date']}",
             f"**Event:** {results['metadata']['event_name'] or 'Market Analysis'}",
-            f"**Symbols:** {len(results['metadata'].get('symbols_analyzed', []))}",
-            f"**HF Models:** {', '.join(results['metadata'].get('hf_models_loaded', ['None']))}",
+            f"**Symbols Analyzed:** {results['metadata'].get('symbols_count', 0)}",
+            f"**AI Models Used:** {', '.join(results['metadata'].get('hf_models_loaded', ['None']))}",
+            f"**Generated:** {results['metadata']['timestamp']}",
             "",
             "---",
             "",
@@ -633,25 +912,43 @@ class ComprehensiveAnalysisPipeline:
             for signal in synthesis['signals']:
                 lines.append(f"- 📊 {signal}")
         
+        if synthesis.get('opportunities'):
+            lines.extend(["", "## Opportunities", ""])
+            for opp in synthesis['opportunities']:
+                lines.append(f"- 💡 {opp}")
+        
         if synthesis.get('risks'):
             lines.extend(["", "## Risk Factors", ""])
             for risk in synthesis['risks']:
                 lines.append(f"- ⚠️ {risk}")
         
-        lines.extend(["", "---", "*Generated by Comprehensive Pipeline*"])
+        # Add visualizations if available
+        viz = results['sections'].get('visualizations', {})
+        if viz and viz.get('charts_created', 0) > 0:
+            lines.extend(["", "## Visualizations", ""])
+            lines.append(f"Generated {viz['charts_created']} charts in `visualizations/` directory")
+        
+        # Add symbols analyzed
+        symbols = results['metadata'].get('symbols_analyzed', [])
+        if symbols:
+            lines.extend(["", "## Symbols Analyzed", ""])
+            lines.append(", ".join(symbols))
+        
+        lines.extend(["", "---", "", "*Generated by Comprehensive Analysis Pipeline (Fixed Version)*"])
         
         return '\n'.join(lines)
 
 
 if __name__ == "__main__":
     print("="*80)
-    print("COMPREHENSIVE PIPELINE - 80% MEMORY TEST")
+    print("COMPREHENSIVE PIPELINE - FIXED VERSION TEST")
     print("="*80)
     
-    # Enable HF models with 80% memory usage
+    # Enable HF models and visualizations
     pipeline = ComprehensiveAnalysisPipeline(
         output_dir='test_pipeline_output',
-        enable_hf=True  # Enable HF models!
+        enable_hf=True,
+        enable_viz=True
     )
     
     # Run comprehensive analysis
