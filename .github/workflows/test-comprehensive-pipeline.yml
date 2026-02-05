@@ -45,14 +45,37 @@ jobs:
     
     - name: Run comprehensive pipeline (default test)
       if: github.event_name != 'workflow_dispatch'
+      env:
+        ALPHA_VANTAGE_API_KEY_1: ${{ secrets.ALPHA_VANTAGE_API_KEY_1 }}
+        ALPHA_VANTAGE_API_KEY_2: ${{ secrets.ALPHA_VANTAGE_API_KEY_2 }}
+        ALPHA_VANTAGE_API_KEY_3: ${{ secrets.ALPHA_VANTAGE_API_KEY_3 }}
+        ALPHA_VANTAGE_API_KEY_4: ${{ secrets.ALPHA_VANTAGE_API_KEY_4 }}
+        ALPHA_VANTAGE_API_KEY_5: ${{ secrets.ALPHA_VANTAGE_API_KEY_5 }}
+        ALPHA_VANTAGE_API_KEY_6: ${{ secrets.ALPHA_VANTAGE_API_KEY_6 }}
+        FRED_API_KEY_1: ${{ secrets.FRED_API_KEY_1 }}
+        FRED_API_KEY_2: ${{ secrets.FRED_API_KEY_2 }}
+        FRED_API_KEY_3: ${{ secrets.FRED_API_KEY_3 }}
+        FRED_API_KEY_4: ${{ secrets.FRED_API_KEY_4 }}
+        FRED_API_KEY_5: ${{ secrets.FRED_API_KEY_5 }}
+        FRED_API_KEY_6: ${{ secrets.FRED_API_KEY_6 }}
       run: |
         python comprehensive_pipeline.py
     
     - name: Run comprehensive pipeline (custom event)
       if: github.event_name == 'workflow_dispatch'
       env:
-        ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
-        FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        ALPHA_VANTAGE_API_KEY_1: ${{ secrets.ALPHA_VANTAGE_API_KEY_1 }}
+        ALPHA_VANTAGE_API_KEY_2: ${{ secrets.ALPHA_VANTAGE_API_KEY_2 }}
+        ALPHA_VANTAGE_API_KEY_3: ${{ secrets.ALPHA_VANTAGE_API_KEY_3 }}
+        ALPHA_VANTAGE_API_KEY_4: ${{ secrets.ALPHA_VANTAGE_API_KEY_4 }}
+        ALPHA_VANTAGE_API_KEY_5: ${{ secrets.ALPHA_VANTAGE_API_KEY_5 }}
+        ALPHA_VANTAGE_API_KEY_6: ${{ secrets.ALPHA_VANTAGE_API_KEY_6 }}
+        FRED_API_KEY_1: ${{ secrets.FRED_API_KEY_1 }}
+        FRED_API_KEY_2: ${{ secrets.FRED_API_KEY_2 }}
+        FRED_API_KEY_3: ${{ secrets.FRED_API_KEY_3 }}
+        FRED_API_KEY_4: ${{ secrets.FRED_API_KEY_4 }}
+        FRED_API_KEY_5: ${{ secrets.FRED_API_KEY_5 }}
+        FRED_API_KEY_6: ${{ secrets.FRED_API_KEY_6 }}
       run: |
         python -c "
         from comprehensive_pipeline import ComprehensiveAnalysisPipeline
