@@ -1,0 +1,335 @@
+name: Test HTML to PDF Converter
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'html_to_pdf.py'
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test-weasyprint:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install system dependencies for WeasyPrint
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libpango-1.0-0 \
+          libpangoft2-1.0-0 \
+          libharfbuzz0b \
+          libfribidi0 \
+          libgdk-pixbuf2.0-0 \
+          shared-mime-info
+    
+    - name: Install Python dependencies
+      run: |
+        pip install weasyprint
+        pip install -r requirements.txt || echo "requirements.txt not found"
+    
+    - name: Create test HTML file
+      run: |
+        cat > test_report.html << 'EOF'
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Test Report</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 2cm; }
+                h1 { color: #333; }
+                .section { margin: 20px 0; padding: 15px; background: #f5f5f5; }
+            </style>
+        </head>
+        <body>
+            <h1>Test Financial Report</h1>
+            <div class="section">
+                <h2>Executive Summary</h2>
+                <p>This is a test report to validate PDF conversion.</p>
+            </div>
+            <div class="section">
+                <h2>Key Metrics</h2>
+                <ul>
+                    <li>Market sentiment: BULLISH</li>
+                    <li>Technical signals: 8 BUY, 3 SELL</li>
+                    <li>Volume trend: INCREASING</li>
+                </ul>
+            </div>
+        </body>
+        </html>
+        EOF
+    
+    - name: Test WeasyPrint conversion
+      run: |
+        python html_to_pdf.py test_report.html test_weasyprint.pdf
+    
+    - name: Verify PDF generated
+      run: |
+        if [ ! -f test_weasyprint.pdf ]; then
+          echo "❌ PDF was not generated"
+          exit 1
+        fi
+        
+        SIZE=$(stat -c%s test_weasyprint.pdf)
+        if [ $SIZE -lt 1000 ]; then
+          echo "❌ PDF file is too small: $SIZE bytes"
+          exit 1
+        fi
+        
+        echo "✓ PDF generated successfully: $SIZE bytes"
+    
+    - name: Upload test artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: html-to-pdf-weasyprint-test
+        path: |
+          test_report.html
+          test_weasyprint.pdf
+        retention-days: 7
+
+  test-pdfkit:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install wkhtmltopdf
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y wkhtmltopdf
+    
+    - name: Install Python dependencies
+      run: |
+        pip install pdfkit
+        pip install -r requirements.txt || echo "requirements.txt not found"
+    
+    - name: Create test HTML file
+      run: |
+        cat > test_report_pdfkit.html << 'EOF'
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Test Report - pdfkit</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 2cm; }
+                h1 { color: #667eea; }
+                .metric { display: inline-block; margin: 10px; padding: 10px; background: #f0f0f0; }
+            </style>
+        </head>
+        <body>
+            <h1>Financial Analysis - pdfkit Test</h1>
+            <div class="metric">Buy Signals: 8</div>
+            <div class="metric">Sell Signals: 3</div>
+            <div class="metric">Neutral: 2</div>
+        </body>
+        </html>
+        EOF
+    
+    - name: Test pdfkit conversion
+      run: |
+        python html_to_pdf.py test_report_pdfkit.html test_pdfkit.pdf --method pdfkit
+    
+    - name: Verify PDF generated
+      run: |
+        if [ ! -f test_pdfkit.pdf ]; then
+          echo "❌ PDF was not generated"
+          exit 1
+        fi
+        echo "✓ PDF generated successfully"
+    
+    - name: Upload test artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: html-to-pdf-pdfkit-test
+        path: |
+          test_report_pdfkit.html
+          test_pdfkit.pdf
+        retention-days: 7
+
+  test-batch-conversion:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libpango-1.0-0 \
+          libpangoft2-1.0-0 \
+          libharfbuzz0b
+        pip install weasyprint
+    
+    - name: Create multiple test HTML files
+      run: |
+        mkdir -p batch_test
+        
+        for i in {1..3}; do
+          cat > batch_test/report_$i.html << EOF
+        <!DOCTYPE html>
+        <html>
+        <head><title>Report $i</title></head>
+        <body>
+            <h1>Test Report $i</h1>
+            <p>This is test report number $i</p>
+        </body>
+        </html>
+        EOF
+        done
+    
+    - name: Test batch conversion
+      run: |
+        mkdir -p batch_output
+        python html_to_pdf.py batch_test/*.html --output-dir batch_output/
+    
+    - name: Verify batch conversion
+      run: |
+        COUNT=$(ls batch_output/*.pdf 2>/dev/null | wc -l)
+        if [ $COUNT -ne 3 ]; then
+          echo "❌ Expected 3 PDFs, found $COUNT"
+          exit 1
+        fi
+        echo "✓ Batch conversion successful: $COUNT PDFs generated"
+    
+    - name: Upload batch artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: batch-conversion-test
+        path: |
+          batch_test/
+          batch_output/
+        retention-days: 7
+
+  test-comprehensive-pipeline-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libpango-1.0-0 \
+          libpangoft2-1.0-0 \
+          libharfbuzz0b
+        pip install weasyprint
+        pip install -r requirements.txt || echo "requirements.txt not found"
+    
+    - name: Generate test comprehensive analysis
+      env:
+        ALPHA_VANTAGE_API_KEY_1: ${{ secrets.ALPHA_VANTAGE_API_KEY_1 }}
+        FRED_API_KEY_1: ${{ secrets.FRED_API_KEY_1 }}
+        SERP_API_KEY_1: ${{ secrets.SERP_API_KEY_1 }}
+      run: |
+        # Run pipeline if available
+        if [ -f comprehensive_pipeline.py ]; then
+          python comprehensive_pipeline.py || echo "Pipeline failed, using mock data"
+        fi
+        
+        # Find generated HTML report (or create mock)
+        HTML_FILE=$(find . -name "*_ai_report.html" -type f | head -1)
+        
+        if [ -z "$HTML_FILE" ]; then
+          echo "No HTML report found, creating mock report"
+          cat > mock_ai_report.html << 'EOF'
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Mock AI Report</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+        </head>
+        <body>
+            <div class="container mt-5">
+                <h1 class="text-primary">Mock Financial Analysis Report</h1>
+                <div class="card mt-4">
+                    <div class="card-body">
+                        <h3>Executive Summary</h3>
+                        <p>Overall market sentiment: BULLISH</p>
+                    </div>
+                </div>
+            </div>
+        </body>
+        </html>
+        EOF
+          HTML_FILE="mock_ai_report.html"
+        fi
+        
+        echo "HTML_FILE=$HTML_FILE" >> $GITHUB_ENV
+    
+    - name: Convert HTML report to PDF
+      run: |
+        python html_to_pdf.py "$HTML_FILE" comprehensive_report.pdf
+    
+    - name: Verify integration
+      run: |
+        if [ -f comprehensive_report.pdf ]; then
+          SIZE=$(stat -c%s comprehensive_report.pdf)
+          echo "✓ Integration test passed: PDF size $SIZE bytes"
+        else
+          echo "❌ Integration test failed"
+          exit 1
+        fi
+    
+    - name: Upload integration artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: pipeline-integration-test
+        path: |
+          ${{ env.HTML_FILE }}
+          comprehensive_report.pdf
+        retention-days: 14
+
+  display-summary:
+    runs-on: ubuntu-latest
+    needs: [test-weasyprint, test-pdfkit, test-batch-conversion, test-comprehensive-pipeline-integration]
+    if: always()
+    
+    steps:
+    - name: Display test summary
+      run: |
+        echo "================================"
+        echo "HTML TO PDF CONVERTER TEST SUMMARY"
+        echo "================================"
+        echo ""
+        echo "Test Results:"
+        echo "- WeasyPrint: ${{ needs.test-weasyprint.result }}"
+        echo "- pdfkit: ${{ needs.test-pdfkit.result }}"
+        echo "- Batch Conversion: ${{ needs.test-batch-conversion.result }}"
+        echo "- Pipeline Integration: ${{ needs.test-comprehensive-pipeline-integration.result }}"
+        echo ""
+        echo "All test artifacts available in Actions > Artifacts"

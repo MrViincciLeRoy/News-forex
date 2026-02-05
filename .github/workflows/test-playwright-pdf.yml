@@ -1,0 +1,411 @@
+name: Test Playwright PDF Converter
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'playwright_pdf.py'
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test-playwright-pdf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install Playwright
+      run: |
+        pip install playwright
+        playwright install chromium
+        playwright install-deps chromium
+    
+    - name: Install other dependencies
+      run: |
+        pip install -r requirements.txt || echo "requirements.txt not found"
+    
+    - name: Create test HTML file
+      run: |
+        cat > test_playwright.html << 'EOF'
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Playwright PDF Test Report</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+            <style>
+                body {
+                    padding: 2rem;
+                }
+                .metric-card {
+                    margin: 1rem 0;
+                    padding: 1.5rem;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                }
+                .chart {
+                    width: 100%;
+                    height: 200px;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    border-radius: 8px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: white;
+                    font-size: 1.5rem;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1 class="text-primary mb-4">Financial Analysis Report</h1>
+                
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="metric-card bg-success text-white">
+                            <h3>Buy Signals</h3>
+                            <h2>8</h2>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="metric-card bg-danger text-white">
+                            <h3>Sell Signals</h3>
+                            <h2>3</h2>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="metric-card bg-warning text-dark">
+                            <h3>Neutral</h3>
+                            <h2>2</h2>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mt-4">
+                    <h2>Market Overview</h2>
+                    <div class="chart">
+                        Chart Placeholder
+                    </div>
+                </div>
+                
+                <div class="mt-4">
+                    <h2>Key Findings</h2>
+                    <ul class="list-group">
+                        <li class="list-group-item">Technical indicators showing bullish momentum</li>
+                        <li class="list-group-item">Volume trend increasing</li>
+                        <li class="list-group-item">Institutional positioning favorable</li>
+                    </ul>
+                </div>
+            </div>
+        </body>
+        </html>
+        EOF
+    
+    - name: Test Playwright PDF conversion
+      run: |
+        python playwright_pdf.py test_playwright.html test_playwright_output.pdf
+    
+    - name: Verify PDF generated
+      run: |
+        if [ ! -f test_playwright_output.pdf ]; then
+          echo "❌ PDF was not generated"
+          exit 1
+        fi
+        
+        SIZE=$(stat -c%s test_playwright_output.pdf)
+        if [ $SIZE -lt 5000 ]; then
+          echo "⚠️  Warning: PDF file seems small: $SIZE bytes"
+        fi
+        
+        echo "✓ PDF generated successfully"
+        echo "Size: $SIZE bytes ($(echo "scale=2; $SIZE/1024" | bc) KB)"
+    
+    - name: Test with complex HTML (Bootstrap & Charts)
+      run: |
+        cat > complex_report.html << 'EOF'
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Complex Report</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+            <style>
+                @media print {
+                    .no-print { display: none; }
+                }
+                .gradient-header {
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    padding: 2rem;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="gradient-header">
+                <h1>Advanced Financial Report</h1>
+                <p class="lead">Generated with Playwright</p>
+            </div>
+            
+            <div class="container mt-4">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header bg-primary text-white">
+                                Technical Analysis
+                            </div>
+                            <div class="card-body">
+                                <p>RSI: 65.4</p>
+                                <p>MACD: Bullish crossover</p>
+                                <div class="progress">
+                                    <div class="progress-bar bg-success" style="width: 75%">75%</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header bg-info text-white">
+                                Market Sentiment
+                            </div>
+                            <div class="card-body">
+                                <p>Overall: BULLISH</p>
+                                <p>Confidence: 72%</p>
+                                <div class="progress">
+                                    <div class="progress-bar bg-info" style="width: 72%">72%</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mt-4">
+                    <table class="table table-striped">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Indicator</th>
+                                <th>Value</th>
+                                <th>Signal</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>RSI</td>
+                                <td>65.4</td>
+                                <td><span class="badge bg-success">BUY</span></td>
+                            </tr>
+                            <tr>
+                                <td>MACD</td>
+                                <td>Positive</td>
+                                <td><span class="badge bg-success">BUY</span></td>
+                            </tr>
+                            <tr>
+                                <td>Moving Average</td>
+                                <td>Above 200 MA</td>
+                                <td><span class="badge bg-success">BUY</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+        </body>
+        </html>
+        EOF
+        
+        python playwright_pdf.py complex_report.html complex_playwright.pdf
+    
+    - name: Verify complex PDF
+      run: |
+        if [ -f complex_playwright.pdf ]; then
+          SIZE=$(stat -c%s complex_playwright.pdf)
+          echo "✓ Complex PDF generated: $SIZE bytes"
+        else
+          echo "❌ Complex PDF generation failed"
+          exit 1
+        fi
+    
+    - name: Test batch conversion
+      run: |
+        mkdir -p batch_playwright
+        
+        # Create 3 test reports
+        for i in {1..3}; do
+          cat > batch_playwright/report_$i.html << EOF
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Report $i</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+        </head>
+        <body class="p-4">
+            <h1 class="text-primary">Test Report $i</h1>
+            <div class="alert alert-info">
+                This is test report number $i
+            </div>
+        </body>
+        </html>
+        EOF
+        done
+        
+        # Convert each file
+        for html in batch_playwright/*.html; do
+          python playwright_pdf.py "$html"
+        done
+    
+    - name: Verify batch results
+      run: |
+        COUNT=$(ls batch_playwright/*.pdf 2>/dev/null | wc -l)
+        if [ $COUNT -eq 3 ]; then
+          echo "✓ Batch conversion successful: $COUNT PDFs"
+        else
+          echo "⚠️  Expected 3 PDFs, found $COUNT"
+        fi
+    
+    - name: Upload test artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-pdf-test-results
+        path: |
+          test_playwright.html
+          test_playwright_output.pdf
+          complex_report.html
+          complex_playwright.pdf
+          batch_playwright/
+        retention-days: 14
+    
+    - name: Display summary
+      if: always()
+      run: |
+        echo "================================"
+        echo "PLAYWRIGHT PDF CONVERTER TESTS"
+        echo "================================"
+        echo ""
+        echo "Generated files:"
+        ls -lh *.pdf 2>/dev/null || echo "No PDFs in root"
+        echo ""
+        ls -lh batch_playwright/*.pdf 2>/dev/null || echo "No PDFs in batch"
+        echo ""
+        echo "✓ All tests completed"
+
+  test-comparison-with-weasyprint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install both converters
+      run: |
+        # Playwright
+        pip install playwright
+        playwright install chromium
+        playwright install-deps chromium
+        
+        # WeasyPrint
+        sudo apt-get update
+        sudo apt-get install -y \
+          libpango-1.0-0 \
+          libpangoft2-1.0-0 \
+          libharfbuzz0b
+        pip install weasyprint
+    
+    - name: Create comparison test HTML
+      run: |
+        cat > comparison_test.html << 'EOF'
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Comparison Test</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+            <style>
+                body { padding: 2rem; }
+                .gradient-box {
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    padding: 2rem;
+                    border-radius: 8px;
+                }
+            </style>
+        </head>
+        <body>
+            <h1 class="text-primary">PDF Converter Comparison</h1>
+            <div class="gradient-box mt-4">
+                <h2>Test Content</h2>
+                <p>This HTML is converted by both Playwright and WeasyPrint</p>
+            </div>
+            <div class="mt-4">
+                <table class="table table-bordered">
+                    <thead><tr><th>Feature</th><th>Value</th></tr></thead>
+                    <tbody>
+                        <tr><td>Signals</td><td>13 total</td></tr>
+                        <tr><td>Sentiment</td><td>BULLISH</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </body>
+        </html>
+        EOF
+    
+    - name: Convert with Playwright
+      run: |
+        if [ -f playwright_pdf.py ]; then
+          python playwright_pdf.py comparison_test.html comparison_playwright.pdf
+        else
+          echo "playwright_pdf.py not found"
+        fi
+    
+    - name: Convert with WeasyPrint
+      run: |
+        if [ -f html_to_pdf.py ]; then
+          python html_to_pdf.py comparison_test.html comparison_weasyprint.pdf --method weasyprint
+        else
+          echo "html_to_pdf.py not found"
+        fi
+    
+    - name: Compare results
+      run: |
+        echo "================================"
+        echo "COMPARISON RESULTS"
+        echo "================================"
+        
+        if [ -f comparison_playwright.pdf ]; then
+          PW_SIZE=$(stat -c%s comparison_playwright.pdf)
+          echo "Playwright: $PW_SIZE bytes ($(echo "scale=2; $PW_SIZE/1024" | bc) KB)"
+        fi
+        
+        if [ -f comparison_weasyprint.pdf ]; then
+          WP_SIZE=$(stat -c%s comparison_weasyprint.pdf)
+          echo "WeasyPrint: $WP_SIZE bytes ($(echo "scale=2; $WP_SIZE/1024" | bc) KB)"
+        fi
+        
+        echo ""
+        echo "Both PDFs generated successfully!"
+        echo "Download artifacts to compare visual quality"
+    
+    - name: Upload comparison artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-weasyprint-comparison
+        path: |
+          comparison_test.html
+          comparison_playwright.pdf
+          comparison_weasyprint.pdf
+        retention-days: 14

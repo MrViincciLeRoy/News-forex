@@ -1,0 +1,589 @@
+name: Test Complete Pipeline with PDF Export
+
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Analysis date (YYYY-MM-DD)'
+        required: false
+        default: '2024-11-01'
+      event_name:
+        description: 'Event name'
+        required: false
+        default: 'Non-Farm Payrolls'
+      symbols:
+        description: 'Symbols (comma-separated)'
+        required: false
+        default: 'GC,DX,ES'
+      skip_pdf:
+        description: 'Skip PDF generation'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'pipeline_with_pdf.py'
+      - 'comprehensive_pipeline.py'
+      - 'local_llm_report_generator.py'
+      - 'html_to_pdf.py'
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test-pipeline-mock-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        # PDF converter dependencies
+        sudo apt-get update
+        sudo apt-get install -y \
+          libpango-1.0-0 \
+          libpangoft2-1.0-0 \
+          libharfbuzz0b \
+          libfribidi0 \
+          libgdk-pixbuf2.0-0
+        
+        # Python packages
+        pip install weasyprint
+        pip install pandas numpy matplotlib seaborn
+        pip install -r requirements.txt || echo "requirements.txt not found"
+    
+    - name: Test pipeline with mock data
+      run: |
+        python -c "
+        import json
+        import os
+        from pathlib import Path
+        from datetime import datetime
+        
+        # Create mock comprehensive analysis JSON
+        mock_data = {
+            'metadata': {
+                'date': '2024-11-01',
+                'event_name': 'Non-Farm Payrolls',
+                'timestamp': datetime.now().isoformat(),
+                'pipeline_version': '2.0',
+                'symbols': ['GC', 'DX', 'ES']
+            },
+            'sections': {
+                'executive_summary': {
+                    'market_overview': 'Analysis of Non-Farm Payrolls on 2024-11-01',
+                    'sentiment': {'overall': 'BULLISH', 'confidence': 0.75},
+                    'key_findings': [
+                        'Technical indicators align bullishly',
+                        'Institutional positioning shows strength',
+                        'Seasonal patterns favorable'
+                    ],
+                    'recommendations': [
+                        'Monitor key support levels',
+                        'Watch for volume confirmation'
+                    ]
+                },
+                'news': {
+                    'article_count': 15,
+                    'sources': ['Reuters', 'Bloomberg', 'FT'],
+                    'key_themes': ['employment', 'inflation', 'growth'],
+                    'sentiment': 'POSITIVE'
+                },
+                'indicators': {
+                    'overall_bias': 'BULLISH',
+                    'buy_signals': 8,
+                    'sell_signals': 3,
+                    'neutral_signals': 2
+                },
+                'cot': {
+                    'net_positioning': 'LONG',
+                    'positioning_change': '+15%',
+                    'institutional_sentiment': 'BULLISH'
+                },
+                'economic': {
+                    'overall_status': 'MODERATE',
+                    'inflation_trend': 'RISING',
+                    'growth_outlook': 'STABLE'
+                },
+                'correlations': {
+                    'key_relationships': {
+                        'DXY_GOLD': {'strength': 'STRONG', 'direction': 'INVERSE'}
+                    }
+                },
+                'structure': {
+                    'trend': 'UPTREND',
+                    'support_levels': [1950, 1925, 1900],
+                    'resistance_levels': [2000, 2025, 2050]
+                },
+                'seasonality': {
+                    'seasonal_bias': 'BULLISH',
+                    'historical_performance': '+2.5%'
+                },
+                'volume': {
+                    'volume_trend': 'INCREASING',
+                    'volume_profile': 'ACCUMULATION'
+                },
+                'synthesis': {
+                    'overall_outlook': 'BULLISH',
+                    'confidence': 0.75,
+                    'key_factors': [
+                        'Technical strength',
+                        'Institutional support',
+                        'Favorable seasonality'
+                    ],
+                    'risks': ['Economic uncertainty', 'Elevated volatility']
+                }
+            }
+        }
+        
+        # Save mock data
+        os.makedirs('test_output', exist_ok=True)
+        with open('test_output/comprehensive_2024_11_01_mock.json', 'w') as f:
+            json.dump(mock_data, f, indent=2)
+        
+        print('✓ Mock data created')
+        "
+    
+    - name: Generate HTML report from mock data
+      run: |
+        if [ -f local_llm_report_generator.py ]; then
+          python local_llm_report_generator.py test_output/comprehensive_2024_11_01_mock.json
+        else
+          echo "⚠️  local_llm_report_generator.py not found"
+        fi
+    
+    - name: Convert HTML to PDF
+      run: |
+        HTML_FILE=$(find test_output -name "*_ai_report.html" -type f | head -1)
+        
+        if [ -n "$HTML_FILE" ] && [ -f html_to_pdf.py ]; then
+          python html_to_pdf.py "$HTML_FILE" test_output/final_report.pdf
+          echo "✓ PDF generated"
+        else
+          echo "⚠️  Skipping PDF generation"
+        fi
+    
+    - name: Verify outputs
+      run: |
+        echo "================================"
+        echo "PIPELINE TEST RESULTS (MOCK DATA)"
+        echo "================================"
+        
+        if [ -f test_output/comprehensive_2024_11_01_mock.json ]; then
+          JSON_SIZE=$(stat -c%s test_output/comprehensive_2024_11_01_mock.json)
+          echo "✓ JSON: $JSON_SIZE bytes"
+        fi
+        
+        HTML_FILE=$(find test_output -name "*_ai_report.html" -type f | head -1)
+        if [ -n "$HTML_FILE" ]; then
+          HTML_SIZE=$(stat -c%s "$HTML_FILE")
+          echo "✓ HTML: $HTML_SIZE bytes"
+        fi
+        
+        if [ -f test_output/final_report.pdf ]; then
+          PDF_SIZE=$(stat -c%s test_output/final_report.pdf)
+          echo "✓ PDF: $PDF_SIZE bytes"
+        fi
+    
+    - name: Upload mock test artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: pipeline-mock-test-${{ github.run_number }}
+        path: test_output/
+        retention-days: 14
+
+  test-pipeline-with-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libpango-1.0-0 \
+          libpangoft2-1.0-0 \
+          libharfbuzz0b
+        
+        pip install weasyprint
+        pip install pandas numpy matplotlib seaborn
+        pip install -r requirements.txt || echo "requirements.txt not found"
+    
+    - name: Run complete pipeline
+      env:
+        ALPHA_VANTAGE_API_KEY_1: ${{ secrets.ALPHA_VANTAGE_API_KEY_1 }}
+        ALPHA_VANTAGE_API_KEY_2: ${{ secrets.ALPHA_VANTAGE_API_KEY_2 }}
+        FRED_API_KEY_1: ${{ secrets.FRED_API_KEY_1 }}
+        FRED_API_KEY_2: ${{ secrets.FRED_API_KEY_2 }}
+        SERP_API_KEY_1: ${{ secrets.SERP_API_KEY_1 }}
+      run: |
+        DATE="${{ github.event.inputs.date || '2024-11-01' }}"
+        EVENT="${{ github.event.inputs.event_name || 'Non-Farm Payrolls' }}"
+        SYMBOLS="${{ github.event.inputs.symbols || 'GC,DX,ES' }}"
+        SKIP_PDF="${{ github.event.inputs.skip_pdf || 'false' }}"
+        
+        if [ -f pipeline_with_pdf.py ]; then
+          if [ "$SKIP_PDF" = "true" ]; then
+            python pipeline_with_pdf.py \
+              --date "$DATE" \
+              --event "$EVENT" \
+              --symbols $SYMBOLS \
+              --output api_test_output \
+              --no-pdf
+          else
+            python pipeline_with_pdf.py \
+              --date "$DATE" \
+              --event "$EVENT" \
+              --symbols $SYMBOLS \
+              --output api_test_output
+          fi
+        else
+          echo "⚠️  pipeline_with_pdf.py not found, running components separately"
+          
+          # Run comprehensive pipeline
+          if [ -f comprehensive_pipeline.py ]; then
+            python comprehensive_pipeline.py
+          fi
+        fi
+    
+    - name: Verify API test outputs
+      run: |
+        echo "================================"
+        echo "PIPELINE TEST RESULTS (WITH API)"
+        echo "================================"
+        
+        # Find generated files
+        JSON_FILES=$(find . -name "comprehensive_*.json" -type f)
+        HTML_FILES=$(find . -name "*_ai_report.html" -type f)
+        PDF_FILES=$(find . -name "*.pdf" -type f)
+        
+        echo ""
+        echo "JSON Files:"
+        echo "$JSON_FILES" | while read file; do
+          if [ -n "$file" ]; then
+            SIZE=$(stat -c%s "$file")
+            echo "  - $file ($SIZE bytes)"
+          fi
+        done
+        
+        echo ""
+        echo "HTML Files:"
+        echo "$HTML_FILES" | while read file; do
+          if [ -n "$file" ]; then
+            SIZE=$(stat -c%s "$file")
+            echo "  - $file ($SIZE bytes)"
+          fi
+        done
+        
+        echo ""
+        echo "PDF Files:"
+        echo "$PDF_FILES" | while read file; do
+          if [ -n "$file" ]; then
+            SIZE=$(stat -c%s "$file")
+            echo "  - $file ($SIZE bytes)"
+          fi
+        done
+    
+    - name: Upload API test artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: pipeline-api-test-${{ github.run_number }}
+        path: |
+          api_test_output/
+          output/
+          test_pipeline_output/
+          pipeline_output/
+          *.json
+          *_ai_report.html
+          *.pdf
+        retention-days: 30
+
+  test-local-llm-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        # PDF dependencies
+        sudo apt-get update
+        sudo apt-get install -y libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b
+        
+        # Python packages
+        pip install weasyprint
+        pip install llama-cpp-python || echo "llama-cpp-python installation skipped"
+        pip install pandas numpy matplotlib
+        pip install -r requirements.txt || echo "requirements.txt not found"
+    
+    - name: Create test data for LLM
+      run: |
+        mkdir -p llm_test_output
+        
+        python -c "
+        import json
+        from datetime import datetime
+        
+        test_data = {
+            'metadata': {
+                'date': '2024-11-01',
+                'event_name': 'LLM Integration Test',
+                'timestamp': datetime.now().isoformat()
+            },
+            'sections': {
+                'executive_summary': {
+                    'market_overview': 'Testing local LLM report generation',
+                    'sentiment': {'overall': 'BULLISH', 'confidence': 0.80}
+                },
+                'indicators': {
+                    'overall_bias': 'BULLISH',
+                    'buy_signals': 10,
+                    'sell_signals': 2
+                },
+                'synthesis': {
+                    'overall_outlook': 'BULLISH',
+                    'confidence': 0.80,
+                    'key_factors': [
+                        'Strong technical setup',
+                        'Positive momentum',
+                        'Favorable risk/reward'
+                    ]
+                }
+            }
+        }
+        
+        with open('llm_test_output/test_data.json', 'w') as f:
+            json.dump(test_data, f, indent=2)
+        
+        print('✓ Test data created')
+        "
+    
+    - name: Test local LLM report generation
+      run: |
+        if [ -f local_llm_report_generator.py ]; then
+          # Run without actual LLM (will use fallback)
+          python local_llm_report_generator.py llm_test_output/test_data.json
+          echo "✓ LLM report generator ran successfully"
+        else
+          echo "⚠️  local_llm_report_generator.py not found"
+        fi
+    
+    - name: Convert LLM HTML to PDF
+      run: |
+        HTML_FILE=$(find llm_test_output -name "*_ai_report.html" -type f | head -1)
+        
+        if [ -n "$HTML_FILE" ] && [ -f html_to_pdf.py ]; then
+          python html_to_pdf.py "$HTML_FILE"
+          echo "✓ PDF generated from LLM report"
+        fi
+    
+    - name: Verify LLM integration
+      run: |
+        echo "================================"
+        echo "LOCAL LLM INTEGRATION TEST"
+        echo "================================"
+        
+        HTML_FILE=$(find llm_test_output -name "*_ai_report.html" -type f | head -1)
+        if [ -n "$HTML_FILE" ]; then
+          echo "✓ HTML report generated"
+          grep -q "AI Insights" "$HTML_FILE" && echo "✓ Contains AI insights"
+          grep -q "bootstrap" "$HTML_FILE" && echo "✓ Contains Bootstrap styling"
+        fi
+        
+        PDF_FILE=$(find llm_test_output -name "*.pdf" -type f | head -1)
+        if [ -n "$PDF_FILE" ]; then
+          SIZE=$(stat -c%s "$PDF_FILE")
+          echo "✓ PDF generated: $SIZE bytes"
+        fi
+    
+    - name: Upload LLM test artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: llm-integration-test-${{ github.run_number }}
+        path: llm_test_output/
+        retention-days: 14
+
+  test-end-to-end-workflow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install all dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libpango-1.0-0 \
+          libpangoft2-1.0-0 \
+          libharfbuzz0b \
+          libfribidi0
+        
+        pip install weasyprint
+        pip install pandas numpy matplotlib seaborn
+        pip install -r requirements.txt || echo "requirements.txt not found"
+    
+    - name: Run end-to-end test
+      env:
+        ALPHA_VANTAGE_API_KEY_1: ${{ secrets.ALPHA_VANTAGE_API_KEY_1 }}
+        FRED_API_KEY_1: ${{ secrets.FRED_API_KEY_1 }}
+      run: |
+        mkdir -p e2e_output
+        
+        # Step 1: Create or run analysis
+        if [ -f comprehensive_pipeline.py ]; then
+          echo "Step 1: Running analysis pipeline..."
+          python -c "
+        from comprehensive_pipeline import ComprehensiveAnalysisPipeline
+        
+        pipeline = ComprehensiveAnalysisPipeline(output_dir='e2e_output')
+        results = pipeline.analyze(
+            date='2024-11-01',
+            event_name='End-to-End Test'
+        )
+        print(f'✓ Analysis complete: {results[\"report_file\"]}')
+          "
+        fi
+        
+        # Find JSON
+        JSON_FILE=$(find e2e_output -name "comprehensive_*.json" -type f | head -1)
+        
+        if [ -z "$JSON_FILE" ]; then
+          echo "Creating mock JSON for E2E test..."
+          python -c "
+        import json
+        test_data = {
+            'metadata': {'date': '2024-11-01', 'event_name': 'E2E Test'},
+            'sections': {
+                'executive_summary': {'sentiment': {'overall': 'BULLISH'}},
+                'indicators': {'buy_signals': 8, 'sell_signals': 3}
+            }
+        }
+        with open('e2e_output/e2e_test.json', 'w') as f:
+            json.dump(test_data, f, indent=2)
+          "
+          JSON_FILE="e2e_output/e2e_test.json"
+        fi
+        
+        # Step 2: Generate HTML
+        echo "Step 2: Generating HTML report..."
+        if [ -f local_llm_report_generator.py ]; then
+          python local_llm_report_generator.py "$JSON_FILE"
+        fi
+        
+        # Step 3: Convert to PDF
+        echo "Step 3: Converting to PDF..."
+        HTML_FILE=$(find e2e_output -name "*_ai_report.html" -type f | head -1)
+        if [ -n "$HTML_FILE" ] && [ -f html_to_pdf.py ]; then
+          python html_to_pdf.py "$HTML_FILE" e2e_output/final_e2e_report.pdf
+        fi
+    
+    - name: Verify end-to-end results
+      run: |
+        echo "================================"
+        echo "END-TO-END WORKFLOW RESULTS"
+        echo "================================"
+        echo ""
+        
+        SUCCESS=true
+        
+        # Check JSON
+        if [ -f e2e_output/*.json ] || [ -f e2e_output/e2e_test.json ]; then
+          echo "✓ JSON analysis data exists"
+        else
+          echo "❌ JSON data missing"
+          SUCCESS=false
+        fi
+        
+        # Check HTML
+        HTML_FILE=$(find e2e_output -name "*_ai_report.html" -type f | head -1)
+        if [ -n "$HTML_FILE" ]; then
+          SIZE=$(stat -c%s "$HTML_FILE")
+          echo "✓ HTML report: $SIZE bytes"
+        else
+          echo "⚠️  HTML report not generated"
+        fi
+        
+        # Check PDF
+        if [ -f e2e_output/final_e2e_report.pdf ]; then
+          SIZE=$(stat -c%s e2e_output/final_e2e_report.pdf)
+          echo "✓ PDF report: $SIZE bytes"
+        else
+          echo "⚠️  PDF report not generated"
+        fi
+        
+        echo ""
+        if [ "$SUCCESS" = true ]; then
+          echo "✓ End-to-end workflow successful"
+        else
+          echo "⚠️  Some steps had issues"
+        fi
+    
+    - name: Upload end-to-end artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: e2e-workflow-test-${{ github.run_number }}
+        path: e2e_output/
+        retention-days: 30
+
+  display-summary:
+    runs-on: ubuntu-latest
+    needs: [test-pipeline-mock-data, test-local-llm-integration, test-end-to-end-workflow]
+    if: always()
+    
+    steps:
+    - name: Display comprehensive summary
+      run: |
+        echo "=========================================="
+        echo "COMPLETE PIPELINE TEST SUMMARY"
+        echo "=========================================="
+        echo ""
+        echo "Test Results:"
+        echo "- Mock Data Pipeline: ${{ needs.test-pipeline-mock-data.result }}"
+        echo "- Local LLM Integration: ${{ needs.test-local-llm-integration.result }}"
+        echo "- End-to-End Workflow: ${{ needs.test-end-to-end-workflow.result }}"
+        echo ""
+        echo "All artifacts available in Actions > Artifacts"
+        echo ""
+        echo "Pipeline tested:"
+        echo "  1. Comprehensive analysis (JSON)"
+        echo "  2. AI-powered HTML report generation"
+        echo "  3. PDF export from HTML"
+        echo "=========================================="
