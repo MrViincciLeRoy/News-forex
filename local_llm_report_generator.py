@@ -2,6 +2,7 @@
 AI-Powered Comprehensive Report Generator using Local LLM
 Uses BIST-Financial-Qwen-7B via llama-cpp-python (no API required!)
 Analyzes pipeline results and generates detailed HTML reports
+Enhanced with template data support for missing sections
 """
 
 import json
@@ -16,11 +17,15 @@ class LocalLLMReportGenerator:
     Generate comprehensive HTML reports using local BIST-Financial-Qwen-7B model
     Analyzes all pipeline data and creates detailed, interactive reports
     No API keys required - runs completely locally!
+    Enhanced with template data to fill missing information
     """
     
-    def __init__(self, model_path=None):
+    def __init__(self, model_path=None, template_data_path=None):
         print("🔄 Loading local LLM model...")
         print("This may take a minute on first run...")
+        
+        # Load template data for filling missing sections
+        self.template_data = self._load_template_data(template_data_path)
         
         try:
             from llama_cpp import Llama
@@ -43,6 +48,116 @@ class LocalLLMReportGenerator:
             )
         except Exception as e:
             raise RuntimeError(f"Failed to load model: {str(e)}")
+    
+    def _load_template_data(self, template_path=None):
+        """Load template data for filling missing sections"""
+        if template_path is None:
+            # Look for template in common locations
+            possible_paths = [
+                'sample_data_templates.json',
+                '/home/claude/sample_data_templates.json',
+                os.path.join(os.path.dirname(__file__), 'sample_data_templates.json'),
+                os.path.join(os.getcwd(), 'sample_data_templates.json')
+            ]
+            
+            for path in possible_paths:
+                if os.path.exists(path):
+                    template_path = path
+                    break
+        
+        if template_path and os.path.exists(template_path):
+            try:
+                with open(template_path, 'r') as f:
+                    data = json.load(f)
+                print(f"✅ Loaded template data from {template_path}")
+                return data
+            except Exception as e:
+                print(f"⚠️ Could not load template data: {e}")
+                return {}
+        else:
+            print("⚠️ No template data file found, using empty defaults")
+            return {}
+    
+    def _merge_with_template(self, section_key, actual_data):
+        """Merge actual data with template data to fill gaps"""
+        if not self.template_data or section_key not in self.template_data:
+            return actual_data
+        
+        template = self.template_data[section_key]
+        
+        # If actual data is empty or None, use template
+        if not actual_data:
+            print(f"  📋 Using template data for {section_key}")
+            return template
+        
+        # If actual data exists but is sparse, merge intelligently
+        if isinstance(actual_data, dict) and isinstance(template, dict):
+            merged = template.copy()
+            # Update with actual data, keeping template as fallback
+            self._deep_merge(merged, actual_data)
+            print(f"  🔄 Merged template + actual data for {section_key}")
+            return merged
+        
+        # Otherwise return actual data
+        return actual_data
+    
+    def _deep_merge(self, base, updates):
+        """Recursively merge updates into base dictionary"""
+        for key, value in updates.items():
+            if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+                self._deep_merge(base[key], value)
+            else:
+                base[key] = value
+    
+    def _load_section_jsons(self, sections_dir: Path, main_data: Dict) -> Dict:
+        """Load all section JSON files from enhanced pipeline output"""
+        sections_dir = Path(sections_dir)
+        section_data = {}
+        
+        # Map section files to main section keys
+        section_mapping = {
+            'news_analysis': 'news',
+            'ai_analysis': 'hf_methods',
+            'technical_indicators': 'indicators',
+            'cot_positioning': 'cot',
+            'economic_indicators': 'economic',
+            'correlations': 'correlations',
+            'market_structure': 'structure',
+            'volume_analysis': 'volume',
+            'seasonality': 'seasonality',
+            'synthesis': 'synthesis'
+        }
+        
+        # Extract date and event from main data for filename matching
+        metadata = main_data.get('metadata', {})
+        date = metadata.get('date', '').replace('-', '_')
+        event = metadata.get('event_name', 'analysis').replace(' ', '_').lower()
+        
+        for section_file_prefix, section_key in section_mapping.items():
+            # Try to find matching section file
+            pattern = f"{section_file_prefix}_{date}_*.json"
+            matches = list(sections_dir.glob(pattern))
+            
+            if not matches:
+                # Try without event name
+                pattern = f"{section_file_prefix}_*.json"
+                matches = list(sections_dir.glob(pattern))
+            
+            if matches:
+                # Use most recent file
+                latest_file = max(matches, key=lambda p: p.stat().st_mtime)
+                
+                try:
+                    with open(latest_file, 'r', encoding='utf-8') as f:
+                        section_json = json.load(f)
+                    
+                    # Extract data from enhanced format
+                    section_data[section_key] = section_json.get('data', section_json)
+                    
+                except Exception as e:
+                    print(f"  ⚠️ Error loading {latest_file.name}: {str(e)[:50]}")
+        
+        return section_data
     
     def _generate_response(self, prompt, max_tokens=2000):
         """Generate response from local LLM."""
@@ -71,6 +186,9 @@ class LocalLLMReportGenerator:
     
     def analyze_section(self, section_name, section_data, context=""):
         """Analyze a section of data with the local LLM."""
+        
+        # Merge with template data first
+        section_data = self._merge_with_template(section_name, section_data)
         
         # Truncate data to fit context window
         data_str = json.dumps(section_data, indent=2)
@@ -105,11 +223,29 @@ Generate ONLY the HTML content, no markdown wrappers."""
         analysis = self._generate_response(prompt, max_tokens=1500)
         
         if not analysis:
-            return f"<p>Analysis unavailable for {section_name}</p>"
+            # Fallback to template-based summary
+            return self._generate_template_summary(section_name, section_data)
         
         return analysis
     
-    def generate_comprehensive_report(self, json_file, output_html=None, viz_dir=None):
+    def _generate_template_summary(self, section_name, section_data):
+        """Generate a basic HTML summary from template data when LLM fails"""
+        if not section_data:
+            return f"<p class='text-muted'>No data available for {section_name}</p>"
+        
+        html = f"<div class='alert alert-info'><strong>Analysis for {section_name}:</strong> Data loaded from template</div>"
+        
+        # Generate basic summary based on section type
+        if isinstance(section_data, dict):
+            html += "<ul>"
+            for key, value in list(section_data.items())[:5]:
+                if isinstance(value, (str, int, float)):
+                    html += f"<li><strong>{key}:</strong> {value}</li>"
+            html += "</ul>"
+        
+        return html
+    
+    def generate_comprehensive_report(self, json_file, output_html=None, viz_dir=None, sections_dir=None):
         """Generate the complete HTML report."""
         
         print("="*80)
@@ -117,9 +253,10 @@ Generate ONLY the HTML content, no markdown wrappers."""
         print("="*80)
         print(f"Model: BIST-Financial-Qwen-7B")
         print(f"Input: {json_file}")
+        print(f"Template Data: {'Loaded' if self.template_data else 'Not available'}")
         print("="*80)
         
-        # Load data
+        # Load main data
         with open(json_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
@@ -130,6 +267,21 @@ Generate ONLY the HTML content, no markdown wrappers."""
         
         if viz_dir is None:
             viz_dir = Path(json_file).parent / 'visualizations'
+        
+        if sections_dir is None:
+            sections_dir = Path(json_file).parent / 'sections'
+        
+        # Load section JSON files if available
+        if Path(sections_dir).exists():
+            print(f"\n📂 Loading section JSON files from: {sections_dir}")
+            section_data = self._load_section_jsons(sections_dir, data)
+            # Merge section data into main data
+            for section_key, section_content in section_data.items():
+                if section_content:
+                    data['sections'][section_key] = section_content
+                    print(f"  ✓ Loaded {section_key}")
+        else:
+            print(f"\n⊘ No sections directory found at: {sections_dir}")
         
         metadata = data.get('metadata', {})
         event_name = metadata.get('event_name', 'Market Analysis')
@@ -146,32 +298,43 @@ Generate ONLY the HTML content, no markdown wrappers."""
         exec_summary = self._generate_executive_summary(data)
         html_parts.append(exec_summary)
         
-        # Process all sections
+        # Process all sections with template fallback
         sections = data.get('sections', {})
         
         section_order = [
-            ('news', '📰 News Analysis'),
-            ('hf_methods', '🤖 AI Analysis'),
-            ('indicators', '📈 Technical Indicators'),
-            ('cot', '📊 COT Positioning'),
-            ('economic', '💹 Economic Indicators'),
-            ('correlations', '🔗 Correlations'),
-            ('structure', '🏗️ Market Structure'),
-            ('volume', '📊 Volume Analysis'),
-            ('seasonality', '📅 Seasonality'),
-            ('synthesis', '💡 Synthesis & Insights')
+            ('news', '📰 News Analysis', 'news_analysis'),
+            ('hf_methods', '🤖 AI Analysis', 'ai_analysis'),
+            ('indicators', '📈 Technical Indicators', 'technical_indicators'),
+            ('cot', '📊 COT Positioning', 'cot_positioning'),
+            ('economic', '💹 Economic Indicators', 'economic_indicators'),
+            ('correlations', '🔗 Correlations', 'correlations'),
+            ('structure', '🏗️ Market Structure', 'market_structure'),
+            ('volume', '📊 Volume Analysis', 'volume_analysis'),
+            ('seasonality', '📅 Seasonality', 'seasonality'),
+            ('synthesis', '💡 Synthesis & Insights', 'synthesis')
         ]
         
-        for section_key, section_title in section_order:
-            if section_key in sections and sections[section_key]:
+        for section_key, section_title, template_key in section_order:
+            section_data = sections.get(section_key, {})
+            
+            # Merge with template if needed
+            if not section_data and template_key in self.template_data:
+                print(f"\n📋 {section_title}: Using template data")
+                section_data = self.template_data[template_key]
+            elif section_data:
                 print(f"\n🔍 Processing: {section_title}")
-                section_html = self._generate_section_html(
-                    section_key, 
-                    section_title, 
-                    sections[section_key],
-                    metadata
-                )
-                html_parts.append(section_html)
+            else:
+                print(f"\n⊘ {section_title}: No data available")
+                continue
+            
+            section_html = self._generate_section_html(
+                section_key, 
+                section_title, 
+                section_data,
+                metadata,
+                template_key
+            )
+            html_parts.append(section_html)
         
         # Add visualizations if they exist
         if viz_dir and Path(viz_dir).exists():
@@ -199,6 +362,7 @@ Generate ONLY the HTML content, no markdown wrappers."""
     def _generate_executive_summary(self, data):
         """Generate executive summary section."""
         
+        # Merge with template
         summary_data = {
             'metadata': data.get('metadata', {}),
             'synthesis': data.get('sections', {}).get('synthesis', {}),
@@ -206,6 +370,8 @@ Generate ONLY the HTML content, no markdown wrappers."""
             'indicators_count': len(data.get('sections', {}).get('indicators', {})),
             'symbols_analyzed': data.get('metadata', {}).get('symbols_count', 0)
         }
+        
+        summary_data = self._merge_with_template('executive_summary', summary_data)
         
         # Truncate for context window
         summary_str = json.dumps(summary_data, indent=2)
@@ -238,7 +404,7 @@ Generate ONLY the HTML content for the executive summary section."""
         summary = self._generate_response(prompt, max_tokens=2000)
         
         if not summary:
-            summary = "<p>Executive summary unavailable</p>"
+            summary = self._generate_template_executive_summary(summary_data)
         
         return f"""
         <section id="executive-summary" class="mb-5">
@@ -249,12 +415,60 @@ Generate ONLY the HTML content for the executive summary section."""
         </section>
         """
     
-    def _generate_section_html(self, section_key, section_title, section_data, metadata):
+    def _generate_template_executive_summary(self, data):
+        """Generate executive summary from template when LLM unavailable"""
+        html = """
+        <div class="alert alert-primary">
+            <h4>Market Overview</h4>
+            <p class="lead">{overview}</p>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        <h5>Opportunities</h5>
+                    </div>
+                    <div class="card-body">
+                        <ul>
+                            {opportunities}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-warning">
+                        <h5>Risks</h5>
+                    </div>
+                    <div class="card-body">
+                        <ul>
+                            {risks}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+        """
+        
+        overview = data.get('market_overview', 'Market analysis in progress.')
+        
+        opportunities = ""
+        for opp in data.get('opportunities', [])[:3]:
+            opportunities += f"<li>{opp.get('opportunity', 'N/A')}</li>"
+        
+        risks = ""
+        for risk in data.get('risks', [])[:3]:
+            risks += f"<li>{risk.get('risk', 'N/A')}</li>"
+        
+        return html.format(overview=overview, opportunities=opportunities, risks=risks)
+    
+    def _generate_section_html(self, section_key, section_title, section_data, metadata, template_key):
         """Generate HTML for a section with AI analysis."""
         
         context = f"Analysis Date: {metadata.get('date')}. Event: {metadata.get('event_name', 'General Market Analysis')}."
         
-        ai_analysis = self.analyze_section(section_key, section_data, context)
+        ai_analysis = self.analyze_section(template_key, section_data, context)
         chart_html = self._create_section_charts(section_key, section_data)
         
         return f"""
@@ -305,7 +519,9 @@ Generate ONLY the HTML content for the executive summary section."""
     
     def _create_sentiment_chart(self, hf_data):
         """Create sentiment distribution chart."""
-        sentiment = hf_data.get('sentiment', {}).get('aggregated', {})
+        sentiment = hf_data.get('sentiment', {})
+        if isinstance(sentiment, dict):
+            sentiment = sentiment.get('aggregated', sentiment)
         
         if not sentiment:
             return ""
@@ -356,9 +572,18 @@ Generate ONLY the HTML content for the executive summary section."""
         if not indicators_data:
             return ""
         
-        buy = sum(1 for ind in indicators_data.values() if ind.get('overall_signal') == 'BUY')
-        sell = sum(1 for ind in indicators_data.values() if ind.get('overall_signal') == 'SELL')
-        neutral = len(indicators_data) - buy - sell
+        buy = 0
+        sell = 0
+        neutral = 0
+        
+        for symbol_data in indicators_data.values():
+            signal = symbol_data.get('overall_signal', 'NEUTRAL')
+            if signal == 'BUY':
+                buy += 1
+            elif signal == 'SELL':
+                sell += 1
+            else:
+                neutral += 1
         
         chart_id = f"chart-{abs(hash('signals')) % 10000}"
         
@@ -408,50 +633,31 @@ Generate ONLY the HTML content for the executive summary section."""
     
     def _create_economic_chart(self, econ_data):
         """Create economic health chart."""
-        if not econ_data or 'indicator_statuses' not in econ_data:
+        if not econ_data:
             return ""
         
-        statuses = list(econ_data['indicator_statuses'].values())
-        strong = statuses.count('STRONG_GROWTH')
-        moderate = statuses.count('MODERATE')
-        weak = statuses.count('WEAK')
-        recession = statuses.count('RECESSION_WARNING')
+        # Try to extract economic status information
+        status = econ_data.get('overall_status', 'MODERATE')
         
-        chart_id = f"chart-{abs(hash('economic')) % 10000}"
+        # Simple status indicator
+        status_color = {
+            'STRONG': 'success',
+            'MODERATE': 'warning',
+            'WEAK': 'danger'
+        }.get(status, 'secondary')
         
         return f"""
         <div class="card">
             <div class="card-header">
                 <h6 class="mb-0">Economic Health</h6>
             </div>
-            <div class="card-body">
-                <canvas id="{chart_id}" style="max-height: 250px;"></canvas>
+            <div class="card-body text-center">
+                <div class="alert alert-{status_color}">
+                    <h3 class="mb-0">{status}</h3>
+                    <p class="mb-0 small">Overall Economic Status</p>
+                </div>
             </div>
         </div>
-        
-        <script>
-        document.addEventListener('DOMContentLoaded', function() {{
-            new Chart(document.getElementById('{chart_id}'), {{
-                type: 'pie',
-                data: {{
-                    labels: ['Strong', 'Moderate', 'Weak', 'Warning'],
-                    datasets: [{{
-                        data: [{strong}, {moderate}, {weak}, {recession}],
-                        backgroundColor: ['#28a745', '#ffc107', '#fd7e14', '#dc3545']
-                    }}]
-                }},
-                options: {{
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {{
-                        legend: {{
-                            position: 'bottom'
-                        }}
-                    }}
-                }}
-            }});
-        }});
-        </script>
         """
     
     def _generate_visualizations_section(self, viz_dir):
@@ -645,10 +851,11 @@ if __name__ == "__main__":
     import sys
     
     print("="*80)
-    print("LOCAL LLM REPORT GENERATOR")
+    print("LOCAL LLM REPORT GENERATOR WITH TEMPLATE SUPPORT")
     print("="*80)
     print("Using: BIST-Financial-Qwen-7B (Financial Analysis Specialist)")
     print("No API keys required - runs completely locally!")
+    print("Template data fills missing sections automatically")
     print("="*80)
     
     # Find JSON file

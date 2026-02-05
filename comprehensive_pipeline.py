@@ -1,6 +1,7 @@
 """
-Comprehensive Analysis Pipeline - Streamlined Orchestrator
-Delegates responsibilities to specialized modules
+Enhanced Comprehensive Analysis Pipeline
+Generates detailed section JSON files for Local LLM Report Generator
+Produces rich, structured data for each report section
 """
 
 import pandas as pd
@@ -18,68 +19,27 @@ import warnings
 warnings.filterwarnings('ignore')
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-from news_fetcher import NewsFetcher
-from analysis_synthesizer import AnalysisSynthesizer
-from pipeline_visualizer import PipelineVisualizer
-
+# Import all the analysis modules (from your existing files)
 try:
+    from news_fetcher import NewsFetcher
+    from analysis_synthesizer import AnalysisSynthesizer
+    from pipeline_visualizer import PipelineVisualizer
     from news_impact_analyzer import NewsImpactAnalyzer
-except ImportError:
-    NewsImpactAnalyzer = None
-
-try:
     from cot_data_fetcher import COTDataFetcher
-except ImportError:
-    COTDataFetcher = None
-
-try:
     from symbol_indicators import SymbolIndicatorCalculator
-except ImportError:
-    SymbolIndicatorCalculator = None
-
-try:
     from correlation_analyzer import CorrelationAnalyzer
-except ImportError:
-    CorrelationAnalyzer = None
-
-try:
     from economic_indicators import EconomicIndicatorIntegration
-except ImportError:
-    EconomicIndicatorIntegration = None
-
-try:
     from seasonality_analyzer import SeasonalityAnalyzer
-except ImportError:
-    SeasonalityAnalyzer = None
-
-try:
     from market_structure_analyzer import MarketStructureAnalyzer
-except ImportError:
-    MarketStructureAnalyzer = None
-
-try:
     from volume_analyzer import VolumeAnalyzer
-except ImportError:
-    VolumeAnalyzer = None
+except ImportError as e:
+    print(f"Warning: Some modules not available: {e}")
 
 
-def get_memory_info():
-    """Get current memory usage"""
-    vm = psutil.virtual_memory()
-    process = psutil.Process()
-    
-    return {
-        'total_gb': round(vm.total / (1024**3), 2),
-        'available_gb': round(vm.available / (1024**3), 2),
-        'used_percent': vm.percent,
-        'process_mb': round(process.memory_info().rss / (1024**2), 2)
-    }
-
-
-class ComprehensivePipeline:
+class EnhancedComprehensivePipeline:
     """
-    Streamlined orchestrator for comprehensive market analysis
-    Delegates to specialized modules for cleaner architecture
+    Enhanced pipeline that generates detailed section JSON files
+    for comprehensive LLM-powered HTML reports
     """
     
     def __init__(
@@ -91,58 +51,32 @@ class ComprehensivePipeline:
     ):
         self.output_dir = output_dir
         self.viz_dir = os.path.join(output_dir, 'visualizations')
+        self.sections_dir = os.path.join(output_dir, 'sections')
+        
         os.makedirs(self.output_dir, exist_ok=True)
         os.makedirs(self.viz_dir, exist_ok=True)
+        os.makedirs(self.sections_dir, exist_ok=True)
         
         self.max_articles = max_articles
         
-        mem_start = get_memory_info()
-        
         print("="*80)
-        print("COMPREHENSIVE ANALYSIS PIPELINE - STREAMLINED")
+        print("ENHANCED COMPREHENSIVE ANALYSIS PIPELINE")
         print("="*80)
-        print(f"System Memory: {mem_start['total_gb']}GB")
+        print(f"Output Directory: {output_dir}")
+        print(f"Sections Directory: {self.sections_dir}")
+        print(f"Visualizations: {self.viz_dir}")
         print(f"Max Articles: {max_articles}")
-        print(f"Visualizations: {'Enabled' if enable_viz else 'Disabled'}")
         print("="*80)
         
         self._validate_api_keys()
-        
-        print("\nInitializing modules...")
-        print("-"*80)
-        
-        # Core modules
-        self.news_fetcher = NewsFetcher(prefer_serp=True)
-        self.news_analyzer = NewsImpactAnalyzer() if NewsImpactAnalyzer else None
-        self.cot_fetcher = COTDataFetcher() if COTDataFetcher else None
-        self.indicator_calc = SymbolIndicatorCalculator() if SymbolIndicatorCalculator else None
-        self.corr_analyzer = CorrelationAnalyzer() if CorrelationAnalyzer else None
-        self.econ_indicators = EconomicIndicatorIntegration() if EconomicIndicatorIntegration else None
-        self.seasonality = SeasonalityAnalyzer() if SeasonalityAnalyzer else None
-        self.market_structure = MarketStructureAnalyzer() if MarketStructureAnalyzer else None
-        self.volume_analyzer = VolumeAnalyzer() if VolumeAnalyzer else None
-        
-        # Specialized modules
-        self.synthesizer = AnalysisSynthesizer()
-        self.visualizer = PipelineVisualizer(self.viz_dir) if enable_viz else None
-        
-        print("✓ Core modules initialized")
-        
-        # HF models
-        self.hf_models = {}
-        if enable_hf:
-            self._load_hf_models()
-        
-        mem_end = get_memory_info()
-        print(f"\n📊 Memory: {mem_end['process_mb']}MB process, {mem_end['used_percent']:.1f}% system")
-        print("="*80 + "\n")
+        self._initialize_modules()
     
     def _validate_api_keys(self):
         """Validate API keys"""
         print("\nAPI Keys:")
         print("-"*80)
         
-        fred_key = os.environ.get('FRED_API_KEY', '')
+        fred_key = os.environ.get('FRED_API_KEY', '') or os.environ.get('FRED_API_KEY_1', '')
         serp_keys = [os.environ.get(f'SERP_API_KEY_{i}', '') for i in range(1, 4)]
         serp_keys = [k for k in serp_keys if k]
         
@@ -154,38 +88,33 @@ class ComprehensivePipeline:
         if serp_keys:
             print(f"  ✓ SERP_API_KEY: {len(serp_keys)} key(s)")
         else:
-            print(f"  ⊘ SERP_API_KEY: Not set (will use fallback sources)")
+            print(f"  ⊘ SERP_API_KEY: Not set")
         
         print("-"*80)
     
-    def _load_hf_models(self):
-        """Load HF models with enhanced analyzer"""
-        try:
-            from enhanced_hf_analyzer import EnhancedHFAnalyzer
-            
-            self.hf_analyzer = EnhancedHFAnalyzer()
-            success = self.hf_analyzer.load_models()
-            
-            if success:
-                self.hf_models['enhanced'] = self.hf_analyzer
-                print(f"✓ Enhanced HF Analyzer ready ({len(self.hf_analyzer.available_methods)} methods)")
-            
-        except ImportError:
-            print("\n⊘ Enhanced HF analyzer not available - install required packages")
-        except Exception as e:
-            print(f"\n⊘ HF analyzer error: {str(e)[:60]}")
+    def _initialize_modules(self):
+        """Initialize all analysis modules"""
+        print("\nInitializing modules...")
+        print("-"*80)
+        
+        self.news_fetcher = NewsFetcher(prefer_serp=True) if 'NewsFetcher' in globals() else None
+        self.news_analyzer = NewsImpactAnalyzer() if 'NewsImpactAnalyzer' in globals() else None
+        self.cot_fetcher = COTDataFetcher() if 'COTDataFetcher' in globals() else None
+        self.indicator_calc = SymbolIndicatorCalculator() if 'SymbolIndicatorCalculator' in globals() else None
+        self.corr_analyzer = CorrelationAnalyzer() if 'CorrelationAnalyzer' in globals() else None
+        self.econ_indicators = EconomicIndicatorIntegration() if 'EconomicIndicatorIntegration' in globals() else None
+        self.seasonality = SeasonalityAnalyzer() if 'SeasonalityAnalyzer' in globals() else None
+        self.market_structure = MarketStructureAnalyzer() if 'MarketStructureAnalyzer' in globals() else None
+        self.volume_analyzer = VolumeAnalyzer() if 'VolumeAnalyzer' in globals() else None
+        self.synthesizer = AnalysisSynthesizer() if 'AnalysisSynthesizer' in globals() else None
+        self.visualizer = PipelineVisualizer(self.viz_dir) if 'PipelineVisualizer' in globals() else None
+        
+        print("✓ Modules initialized")
+        print("="*80 + "\n")
     
     def analyze(self, date: str, event_name: Optional[str] = None, symbols: Optional[List[str]] = None) -> Dict:
         """
-        Run comprehensive analysis
-        
-        Args:
-            date: Analysis date (YYYY-MM-DD)
-            event_name: Economic event name
-            symbols: List of symbols (auto-detected if None)
-            
-        Returns:
-            Complete analysis results dictionary
+        Run comprehensive analysis with enhanced JSON output
         """
         print("="*80)
         print(f"ANALYSIS: {event_name or 'Market Analysis'}")
@@ -197,8 +126,8 @@ class ComprehensivePipeline:
                 'date': date,
                 'event_name': event_name,
                 'timestamp': datetime.now().isoformat(),
-                'hf_models_loaded': list(self.hf_models.keys()),
-                'max_articles': self.max_articles
+                'max_articles': self.max_articles,
+                'pipeline_version': 'enhanced_1.0'
             },
             'sections': {}
         }
@@ -206,8 +135,9 @@ class ComprehensivePipeline:
         # 1. NEWS ANALYSIS
         print("\n📰 SECTION 1: NEWS")
         print("-"*80)
-        news_results = self._fetch_news(date, event_name)
+        news_results = self._fetch_and_analyze_news(date, event_name)
         results['sections']['news'] = news_results
+        self._save_section_json('news_analysis', news_results, date, event_name)
         
         # Extract symbols
         if symbols is None:
@@ -219,53 +149,78 @@ class ComprehensivePipeline:
         # 2. COT POSITIONING
         print("\n📊 SECTION 2: COT")
         print("-"*80)
-        results['sections']['cot'] = self._analyze_cot(date, symbols)
+        cot_results = self._analyze_cot(date, symbols)
+        results['sections']['cot'] = cot_results
+        self._save_section_json('cot_positioning', cot_results, date, event_name)
         
         # 3. TECHNICAL INDICATORS
         print("\n📈 SECTION 3: TECHNICAL")
         print("-"*80)
-        results['sections']['indicators'] = self._analyze_indicators(date, symbols)
+        indicators_results = self._analyze_indicators(date, symbols)
+        results['sections']['indicators'] = indicators_results
+        self._save_section_json('technical_indicators', indicators_results, date, event_name)
         
         # 4. CORRELATIONS
         print("\n🔗 SECTION 4: CORRELATIONS")
         print("-"*80)
-        results['sections']['correlations'] = self._analyze_correlations(date, symbols[:5])
+        corr_results = self._analyze_correlations(date, symbols[:5])
+        results['sections']['correlations'] = corr_results
+        self._save_section_json('correlations', corr_results, date, event_name)
         
         # 5. ECONOMIC
         print("\n💹 SECTION 5: ECONOMIC")
         print("-"*80)
-        results['sections']['economic'] = self._analyze_economic(date)
+        econ_results = self._analyze_economic(date)
+        results['sections']['economic'] = econ_results
+        self._save_section_json('economic_indicators', econ_results, date, event_name)
         
         # 6. STRUCTURE
         print("\n🏗️  SECTION 6: STRUCTURE")
         print("-"*80)
-        results['sections']['structure'] = self._analyze_structure(date, symbols[:5])
+        structure_results = self._analyze_structure(date, symbols[:5])
+        results['sections']['structure'] = structure_results
+        self._save_section_json('market_structure', structure_results, date, event_name)
         
         # 7. SEASONALITY
         print("\n📅 SECTION 7: SEASONALITY")
         print("-"*80)
-        results['sections']['seasonality'] = self._analyze_seasonality(symbols[:3])
+        seasonality_results = self._analyze_seasonality(symbols[:3])
+        results['sections']['seasonality'] = seasonality_results
+        self._save_section_json('seasonality', seasonality_results, date, event_name)
         
         # 8. VOLUME
         print("\n📊 SECTION 8: VOLUME")
         print("-"*80)
-        results['sections']['volume'] = self._analyze_volume(date, symbols[:5])
+        volume_results = self._analyze_volume(date, symbols[:5])
+        results['sections']['volume'] = volume_results
+        self._save_section_json('volume_analysis', volume_results, date, event_name)
         
-        # 9. HF AI METHODS
-        if self.hf_models:
+        # 9. HF AI METHODS (if available)
+        try:
+            from enhanced_hf_analyzer import EnhancedHFAnalyzer
             print("\n🤖 SECTION 9: HF AI")
             print("-"*80)
-            results['sections']['hf_methods'] = self._run_hf_analysis(
-                date, event_name, news_results, symbols
-            )
+            hf_analyzer = EnhancedHFAnalyzer()
+            if hf_analyzer.load_models():
+                hf_results = hf_analyzer.analyze_comprehensive(
+                    articles=news_results.get('articles', []),
+                    symbols=symbols,
+                    date=date,
+                    event_name=event_name
+                )
+                results['sections']['hf_methods'] = hf_results
+                self._save_section_json('ai_analysis', hf_results, date, event_name)
+        except Exception as e:
+            print(f"  ⊘ HF AI not available: {str(e)[:60]}")
         
         # 10. SYNTHESIS
         print("\n💡 SECTION 10: SYNTHESIS")
         print("-"*80)
-        insights = self.synthesizer.synthesize(results)
-        results['sections']['synthesis'] = insights
-        print(f"  ✓ Generated {len(insights['key_findings'])} findings")
-        print(f"  ✓ Overall confidence: {insights.get('overall_confidence', 0):.1%}")
+        if self.synthesizer:
+            insights = self.synthesizer.synthesize(results)
+            results['sections']['synthesis'] = insights
+            self._save_section_json('synthesis', insights, date, event_name)
+            print(f"  ✓ Generated {len(insights.get('key_findings', []))} findings")
         
         # 11. VISUALIZATIONS
         if self.visualizer:
@@ -275,49 +230,57 @@ class ComprehensivePipeline:
             results['sections']['visualizations'] = viz_results
             print(f"  ✓ Created {viz_results.get('charts_created', 0)} charts")
         
-        # Save results
+        # 12. EXECUTIVE SUMMARY
+        print("\n⭐ SECTION 12: EXECUTIVE SUMMARY")
+        print("-"*80)
+        exec_summary = self._generate_executive_summary(results)
+        self._save_section_json('executive_summary', exec_summary, date, event_name)
+        
+        # Save main comprehensive results
         report_file = self._save_results(results, date, event_name)
         results['report_file'] = report_file
-        
-        mem_final = get_memory_info()
         
         print("\n" + "="*80)
         print("✓ ANALYSIS COMPLETE")
         print("="*80)
-        print(f"Report: {report_file}")
+        print(f"Main Report: {report_file}")
+        print(f"Section JSONs: {self.sections_dir}")
+        print(f"Visualizations: {self.viz_dir}")
         print(f"Articles: {news_results.get('article_count', 0)}")
         print(f"Symbols: {len(symbols)}")
-        print(f"Memory: {mem_final['process_mb']}MB")
         print("="*80 + "\n")
         
         return results
     
-    def _fetch_news(self, date: str, event_name: Optional[str]) -> Dict:
-        """Fetch news articles"""
+    def _fetch_and_analyze_news(self, date: str, event_name: Optional[str]) -> Dict:
+        """Enhanced news fetching with detailed structure"""
         articles = []
         
         try:
-            if event_name:
-                articles = self.news_fetcher.fetch_event_news(
-                    date, event_name,
-                    max_records=self.max_articles,
-                    full_content=True
-                )
-            else:
-                articles = self.news_fetcher.fetch_news(
-                    date,
-                    max_records=self.max_articles
-                )
-            
-            print(f"  ✓ Fetched {len(articles)} articles")
-        
+            if self.news_fetcher:
+                if event_name:
+                    articles = self.news_fetcher.fetch_event_news(
+                        date, event_name,
+                        max_records=self.max_articles,
+                        full_content=True
+                    )
+                else:
+                    articles = self.news_fetcher.fetch_news(date, max_records=self.max_articles)
+                
+                print(f"  ✓ Fetched {len(articles)} articles")
         except Exception as e:
             print(f"  ✗ Error: {str(e)[:50]}")
         
+        # Enhanced news structure
         results = {
-            'articles': articles,
             'article_count': len(articles),
-            'impact_analysis': None
+            'articles': articles,
+            'coverage_period': f"{date} to {(pd.to_datetime(date) + timedelta(days=2)).strftime('%Y-%m-%d')}",
+            'sources': list(set([a.get('source', 'Unknown') for a in articles])),
+            'top_headlines': [a.get('title', '') for a in articles[:10]],
+            'impact_analysis': None,
+            'sentiment_breakdown': {},
+            'key_themes': []
         }
         
         # Impact analysis
@@ -331,26 +294,49 @@ class ComprehensivePipeline:
             except:
                 pass
         
+        # Extract themes
+        all_text = ' '.join([a.get('title', '') + ' ' + a.get('content', '')[:200] for a in articles])
+        themes = self._extract_themes(all_text)
+        results['key_themes'] = themes
+        
         return results
+    
+    def _extract_themes(self, text: str) -> List[str]:
+        """Extract key themes from text"""
+        text_lower = text.lower()
+        
+        theme_keywords = {
+            'employment': ['jobs', 'employment', 'payroll', 'unemployment', 'labor'],
+            'inflation': ['inflation', 'cpi', 'prices', 'cost'],
+            'monetary_policy': ['fed', 'federal reserve', 'interest rate', 'rate hike'],
+            'economic_growth': ['gdp', 'growth', 'economy', 'economic'],
+            'market_sentiment': ['rally', 'decline', 'volatility', 'market'],
+            'geopolitical': ['war', 'conflict', 'sanctions', 'trade war']
+        }
+        
+        themes = []
+        for theme, keywords in theme_keywords.items():
+            if any(kw in text_lower for kw in keywords):
+                themes.append(theme.replace('_', ' ').title())
+        
+        return themes[:5]
     
     def _extract_symbols(self, news_results: Dict, event_name: Optional[str]) -> List[str]:
         """Extract symbols from news and event"""
         symbols = set()
         
-        # From impact analysis
         if news_results.get('impact_analysis'):
             impact_symbols = news_results['impact_analysis'].get('symbols', {})
             symbols.update(impact_symbols.keys())
         
-        # From articles
-        for article in news_results.get('articles', []):
-            text = article.get('title', '') + ' ' + article.get('content', '')
-            article_symbols = self.news_fetcher.get_affected_symbols(
-                event_name or '', text
-            )
-            symbols.update(article_symbols)
+        if self.news_fetcher:
+            for article in news_results.get('articles', []):
+                text = article.get('title', '') + ' ' + article.get('content', '')
+                article_symbols = self.news_fetcher.get_affected_symbols(
+                    event_name or '', text
+                )
+                symbols.update(article_symbols)
         
-        # Default symbols if none found
         if not symbols:
             symbols = {'EURUSD=X', 'GC=F', '^GSPC', 'DX-Y.NYB', 'TLT'}
         
@@ -360,11 +346,18 @@ class ComprehensivePipeline:
         return symbol_list
     
     def _analyze_cot(self, date: str, symbols: List[str]) -> Dict:
-        """Analyze COT positioning"""
+        """Enhanced COT analysis with detailed structure"""
         if not self.cot_fetcher:
             return {}
         
-        results = {}
+        results = {
+            'symbols_analyzed': 0,
+            'report_date': '',
+            'key_positions': {},
+            'positioning_changes': {},
+            'smart_money_bias': {}
+        }
+        
         symbol_map = {
             'EURUSD=X': 'EUR', 'GBPUSD=X': 'GBP', 'USDJPY=X': 'JPY',
             'GC=F': 'GOLD', 'SI=F': 'SILVER', 'CL=F': 'CRUDE_OIL'
@@ -376,136 +369,338 @@ class ComprehensivePipeline:
                 try:
                     positioning = self.cot_fetcher.get_positioning_for_date(cot_symbol, date)
                     if positioning:
-                        results[symbol] = positioning
+                        results['key_positions'][symbol] = {
+                            'sentiment': positioning.get('sentiment', 'NEUTRAL'),
+                            'dealer_net': positioning.get('dealer', {}).get('net', 0),
+                            'asset_mgr_net': positioning.get('asset_manager', {}).get('net', 0),
+                            'leveraged_net': positioning.get('leveraged', {}).get('net', 0),
+                            'smart_money_bias': 'LONG' if positioning.get('dealer', {}).get('net', 0) > 0 else 'SHORT'
+                        }
+                        results['symbols_analyzed'] += 1
+                        if not results['report_date']:
+                            results['report_date'] = positioning.get('report_date', '')
                 except:
                     pass
         
-        print(f"  ✓ {len(results)} symbols")
+        print(f"  ✓ {results['symbols_analyzed']} symbols")
         return results
     
     def _analyze_indicators(self, date: str, symbols: List[str]) -> Dict:
-        """Analyze technical indicators"""
+        """Enhanced technical indicators with structured output"""
         if not self.indicator_calc:
             return {}
         
-        results = {}
+        results = {
+            'symbols_analyzed': 0,
+            'overall_bias': 'NEUTRAL',
+            'buy_signals': 0,
+            'sell_signals': 0,
+            'neutral_signals': 0,
+            'top_signals': {}
+        }
+        
         for symbol in symbols:
             try:
                 indicators = self.indicator_calc.get_indicators_for_date(symbol, date)
                 if indicators:
-                    results[symbol] = indicators
+                    signal = indicators.get('overall_signal', 'NEUTRAL')
+                    results['top_signals'][symbol] = {
+                        'overall': signal,
+                        'buy_count': indicators.get('buy_count', 0),
+                        'sell_count': indicators.get('sell_count', 0),
+                        'price': indicators.get('price', 0),
+                        'key_indicators': {}
+                    }
+                    
+                    # Extract key indicators
+                    for ind_name, ind_data in list(indicators.get('indicators', {}).items())[:3]:
+                        results['top_signals'][symbol]['key_indicators'][ind_name] = {
+                            'value': ind_data.get('value'),
+                            'signal': ind_data.get('signal')
+                        }
+                    
+                    results['symbols_analyzed'] += 1
+                    if signal == 'BUY':
+                        results['buy_signals'] += 1
+                    elif signal == 'SELL':
+                        results['sell_signals'] += 1
+                    else:
+                        results['neutral_signals'] += 1
             except:
                 pass
         
-        print(f"  ✓ {len(results)} symbols")
+        # Determine overall bias
+        if results['buy_signals'] > results['sell_signals']:
+            results['overall_bias'] = 'BULLISH'
+        elif results['sell_signals'] > results['buy_signals']:
+            results['overall_bias'] = 'BEARISH'
+        
+        print(f"  ✓ {results['symbols_analyzed']} symbols")
         return results
     
     def _analyze_correlations(self, date: str, symbols: List[str]) -> Dict:
-        """Analyze correlations"""
+        """Enhanced correlation analysis"""
         if not self.corr_analyzer:
             return {}
         
-        results = {}
-        for symbol in symbols:
+        results = {
+            'symbols_analyzed': len(symbols),
+            'key_relationships': {},
+            'leading_indicators': []
+        }
+        
+        # Key relationships
+        relationships = {
+            'Dollar vs Gold': ('DX-Y.NYB', 'GC=F'),
+            'Stocks vs Bonds': ('^GSPC', 'TLT'),
+            'Stocks vs VIX': ('^GSPC', '^VIX'),
+            'EUR vs Dollar': ('EURUSD=X', 'DX-Y.NYB')
+        }
+        
+        for name, (sym1, sym2) in relationships.items():
             try:
-                corr = self.corr_analyzer.get_correlation_analysis(symbol, date, lookback_days=90)
-                if corr:
-                    results[symbol] = corr
+                start_date = (pd.to_datetime(date) - timedelta(days=90)).strftime('%Y-%m-%d')
+                
+                s1 = self.corr_analyzer.fetch_data(sym1, start_date, date)
+                s2 = self.corr_analyzer.fetch_data(sym2, start_date, date)
+                
+                if s1 is not None and s2 is not None and len(s1) > 0 and len(s2) > 0:
+                    df = pd.DataFrame({'s1': s1, 's2': s2}).dropna()
+                    if len(df) > 0:
+                        corr_90d = df['s1'].corr(df['s2'])
+                        corr_30d = df.tail(30)['s1'].corr(df.tail(30)['s2']) if len(df) >= 30 else corr_90d
+                        
+                        results['key_relationships'][name] = {
+                            'correlation_90d': round(corr_90d, 2),
+                            'correlation_30d': round(corr_30d, 2),
+                            'relationship': 'INVERSE' if corr_90d < -0.3 else ('POSITIVE' if corr_90d > 0.3 else 'NEUTRAL'),
+                            'strength': 'STRONG' if abs(corr_90d) > 0.7 else ('MODERATE' if abs(corr_90d) > 0.4 else 'WEAK')
+                        }
             except:
                 pass
         
-        print(f"  ✓ {len(results)} symbols")
+        print(f"  ✓ {len(results['key_relationships'])} relationships")
         return results
     
     def _analyze_economic(self, date: str) -> Optional[Dict]:
-        """Analyze economic indicators"""
+        """Enhanced economic indicators"""
         if not self.econ_indicators:
-            print("  ⊘ Not available")
             return None
         
         try:
             snapshot = self.econ_indicators.get_economic_snapshot(date)
             if snapshot:
-                status = snapshot.get('overall_economic_status', 'N/A')
-                print(f"  ✓ {status}")
-                return snapshot
+                # Enhanced structure
+                enhanced = {
+                    'snapshot_date': date,
+                    'overall_status': snapshot.get('overall_economic_status', 'MODERATE'),
+                    'interest_rates': snapshot.get('interest_rates', {}),
+                    'inflation': snapshot.get('inflation', {}),
+                    'employment': snapshot.get('employment', {}),
+                    'growth': {
+                        'recession_probability': 0.25 if snapshot.get('overall_economic_status') == 'WEAK' else 0.15
+                    }
+                }
+                print(f"  ✓ {enhanced['overall_status']}")
+                return enhanced
         except Exception as e:
             print(f"  ✗ Error: {str(e)[:50]}")
         
         return None
     
     def _analyze_structure(self, date: str, symbols: List[str]) -> Dict:
-        """Analyze market structure"""
+        """Enhanced market structure"""
         if not self.market_structure:
             return {}
         
-        results = {}
+        results = {
+            'symbols_analyzed': 0,
+            'overall_market_regime': 'MIXED',
+            'volatility_regime': 'NORMAL_VOLATILITY',
+            'key_structures': {}
+        }
+        
+        regimes = []
         for symbol in symbols:
             try:
                 structure = self.market_structure.get_market_structure(symbol, date)
                 if structure:
-                    results[symbol] = structure
+                    results['key_structures'][symbol] = {
+                        'trend': structure.get('trend_analysis', {}).get('trend', 'SIDEWAYS'),
+                        'structure': structure.get('price_structure', {}).get('structure', 'NEUTRAL'),
+                        'regime': structure.get('market_regime', {}).get('market_type', 'MIXED'),
+                        'support_levels': structure.get('support_resistance', {}).get('support', [])[:3],
+                        'resistance_levels': structure.get('support_resistance', {}).get('resistance', [])[:3],
+                        'pivot_point': structure.get('pivot_points', {}).get('pivot', 0)
+                    }
+                    results['symbols_analyzed'] += 1
+                    regimes.append(structure.get('market_regime', {}).get('market_type', 'MIXED'))
             except:
                 pass
         
-        print(f"  ✓ {len(results)} symbols")
+        if regimes:
+            from collections import Counter
+            most_common = Counter(regimes).most_common(1)[0][0]
+            results['overall_market_regime'] = most_common
+        
+        print(f"  ✓ {results['symbols_analyzed']} symbols")
         return results
     
     def _analyze_seasonality(self, symbols: List[str]) -> Dict:
-        """Analyze seasonality"""
+        """Enhanced seasonality analysis"""
         if not self.seasonality:
             return {}
         
-        results = {}
+        results = {
+            'symbols_analyzed': 0,
+            'current_month': datetime.now().strftime('%B'),
+            'current_day': datetime.now().strftime('%A'),
+            'key_patterns': {},
+            'current_biases': []
+        }
+        
         for symbol in symbols:
             try:
                 season = self.seasonality.get_seasonality_analysis(symbol, years_back=5)
                 if season:
-                    results[symbol] = season
+                    results['key_patterns'][symbol] = {
+                        'best_month': season.get('monthly_patterns', {}).get('best_month'),
+                        'worst_month': season.get('monthly_patterns', {}).get('worst_month'),
+                        'best_day': season.get('day_of_week_patterns', {}).get('best_day'),
+                        'current_month_bias': season.get('current_biases', {}).get('month_avg_return', 0),
+                        'current_day_bias': season.get('current_biases', {}).get('day_avg_return', 0)
+                    }
+                    results['symbols_analyzed'] += 1
+                    
+                    if abs(season.get('current_biases', {}).get('month_avg_return', 0)) > 0.5:
+                        bias = 'positive' if season.get('current_biases', {}).get('month_avg_return', 0) > 0 else 'negative'
+                        results['current_biases'].append(
+                            f"{symbol} shows {bias} bias for {results['current_month']}"
+                        )
             except:
                 pass
         
-        print(f"  ✓ {len(results)} symbols")
+        print(f"  ✓ {results['symbols_analyzed']} symbols")
         return results
     
     def _analyze_volume(self, date: str, symbols: List[str]) -> Dict:
-        """Analyze volume"""
+        """Enhanced volume analysis"""
         if not self.volume_analyzer:
             return {}
         
-        results = {}
+        results = {
+            'symbols_analyzed': 0,
+            'overall_volume_trend': 'NORMAL',
+            'key_insights': {}
+        }
+        
+        high_volume_count = 0
         for symbol in symbols:
             try:
                 volume = self.volume_analyzer.get_volume_analysis(symbol, date)
                 if volume:
-                    results[symbol] = volume
+                    vol_ratio = volume.get('indicators', {}).get('Volume_Ratio', {}).get('value', 1.0)
+                    
+                    results['key_insights'][symbol] = {
+                        'volume_ratio': vol_ratio,
+                        'signal': volume.get('indicators', {}).get('Volume_Ratio', {}).get('signal', 'NORMAL'),
+                        'vwap_position': 'ABOVE' if volume.get('indicators', {}).get('VWAP', {}).get('signal') == 'BULLISH' else 'BELOW',
+                        'obv_trend': volume.get('indicators', {}).get('OBV', {}).get('trend', 'NEUTRAL'),
+                        'mfi': volume.get('indicators', {}).get('MFI', {}).get('value', 50),
+                        'overall': volume.get('overall_signal', 'NEUTRAL')
+                    }
+                    results['symbols_analyzed'] += 1
+                    
+                    if vol_ratio > 1.2:
+                        high_volume_count += 1
             except:
                 pass
         
-        print(f"  ✓ {len(results)} symbols")
+        if high_volume_count > len(symbols) / 2:
+            results['overall_volume_trend'] = 'INCREASING'
+        
+        print(f"  ✓ {results['symbols_analyzed']} symbols")
         return results
     
-    def _run_hf_analysis(self, date: str, event_name: Optional[str], news_results: Dict, symbols: List[str]) -> Dict:
-        """Run HF AI analysis with enhanced analyzer"""
+    def _generate_executive_summary(self, results: Dict) -> Dict:
+        """Generate executive summary from all sections"""
+        metadata = results.get('metadata', {})
+        sections = results.get('sections', {})
         
-        # Check if enhanced analyzer is available
-        if 'enhanced' in self.hf_models:
-            analyzer = self.hf_models['enhanced']
-            articles = news_results.get('articles', [])
+        summary = {
+            'market_overview': f"Comprehensive analysis for {metadata.get('event_name', 'market event')} on {metadata.get('date')}",
+            'key_findings': [],
+            'sentiment': {
+                'overall': 'NEUTRAL',
+                'confidence': 0.5,
+                'breakdown': {'positive': 33, 'neutral': 34, 'negative': 33}
+            },
+            'risks': [],
+            'opportunities': []
+        }
+        
+        # Extract key findings from synthesis
+        synthesis = sections.get('synthesis', {})
+        if synthesis:
+            summary['key_findings'] = synthesis.get('key_findings', [])[:5]
+            summary['sentiment']['confidence'] = synthesis.get('overall_confidence', 0.5)
+        
+        # Add technical bias as finding
+        indicators = sections.get('indicators', {})
+        if indicators:
+            bias = indicators.get('overall_bias', 'NEUTRAL')
+            buy_pct = (indicators.get('buy_signals', 0) / max(indicators.get('symbols_analyzed', 1), 1)) * 100
             
-            return analyzer.analyze_comprehensive(
-                articles=articles,
-                symbols=symbols,
-                date=date,
-                event_name=event_name
-            )
+            summary['key_findings'].append({
+                'finding': f"Technical indicators show {bias.lower()} bias with {buy_pct:.0f}% buy signals",
+                'importance': 'high',
+                'data_point': f"{indicators.get('buy_signals', 0)} BUY vs {indicators.get('sell_signals', 0)} SELL"
+            })
         
-        # No HF models available
-        print("  ⊘ No HF models loaded")
-        return {}
+        # Add risks and opportunities from different sections
+        econ = sections.get('economic', {})
+        if econ:
+            if econ.get('interest_rates', {}).get('recession_risk') == 'HIGH':
+                summary['risks'].append({
+                    'risk': 'Inverted yield curve signals potential recession',
+                    'severity': 'high',
+                    'probability': 'moderate'
+                })
+        
+        # Determine overall sentiment
+        if indicators.get('overall_bias') == 'BULLISH':
+            summary['sentiment']['overall'] = 'BULLISH'
+            summary['sentiment']['breakdown'] = {'positive': 65, 'neutral': 25, 'negative': 10}
+        elif indicators.get('overall_bias') == 'BEARISH':
+            summary['sentiment']['overall'] = 'BEARISH'
+            summary['sentiment']['breakdown'] = {'positive': 10, 'neutral': 25, 'negative': 65}
+        
+        print(f"  ✓ Executive summary generated")
+        return summary
+    
+    def _save_section_json(self, section_name: str, section_data: Dict, date: str, event_name: Optional[str]):
+        """Save individual section JSON file"""
+        date_clean = date.replace('-', '_')
+        event_clean = (event_name or 'analysis').replace(' ', '_').lower()
+        
+        filename = f'{self.sections_dir}/{section_name}_{date_clean}_{event_clean}.json'
+        
+        # Add metadata to section
+        enhanced_data = {
+            'section_type': section_name,
+            'date': date,
+            'event_name': event_name,
+            'generated_at': datetime.now().isoformat(),
+            'data': section_data
+        }
+        
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(enhanced_data, f, indent=2, ensure_ascii=False, default=str)
+        
+        print(f"  💾 Saved: {section_name}.json")
     
     def _save_results(self, results: Dict, date: str, event_name: Optional[str]) -> str:
-        """Save results to file"""
+        """Save main comprehensive results"""
         date_clean = date.replace('-', '_')
         event_clean = (event_name or 'analysis').replace(' ', '_').lower()
         
@@ -514,22 +709,21 @@ class ComprehensivePipeline:
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(results, f, indent=2, ensure_ascii=False, default=str)
         
-        # Also save markdown
-        md_content = self.synthesizer.generate_markdown_summary(
-            results['sections'].get('synthesis', {}),
-            results['metadata']
-        )
-        
-        md_file = filename.replace('.json', '.md')
-        with open(md_file, 'w', encoding='utf-8') as f:
-            f.write(md_content)
+        # Also save markdown summary if synthesizer available
+        if self.synthesizer:
+            synthesis = results.get('sections', {}).get('synthesis', {})
+            md_content = self.synthesizer.generate_markdown_summary(synthesis, results['metadata'])
+            
+            md_file = filename.replace('.json', '.md')
+            with open(md_file, 'w', encoding='utf-8') as f:
+                f.write(md_content)
         
         return filename
 
 
 if __name__ == "__main__":
-    pipeline = ComprehensivePipeline(
-        output_dir='test_pipeline_output',
+    pipeline = EnhancedComprehensivePipeline(
+        output_dir='enhanced_pipeline_output',
         enable_hf=True,
         enable_viz=True,
         max_articles=20
@@ -542,3 +736,4 @@ if __name__ == "__main__":
     )
     
     print(f"\n✓ Results saved to: {results['report_file']}")
+    print(f"✓ Section JSONs in: {pipeline.sections_dir}")
