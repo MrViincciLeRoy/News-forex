@@ -1,367 +1,335 @@
-"""
-Enhanced COT Data Fetcher with Fallbacks
-Fixes "0 symbols" issue by trying multiple approaches and providing synthetic estimates
-"""
-
 import pandas as pd
-import numpy as np
 import requests
 from datetime import datetime, timedelta
 import io
-import warnings
-
-warnings.filterwarnings('ignore', category=pd.errors.PerformanceWarning)
+import zipfile
 
 
-class EnhancedCOTDataFetcher:
-    """
-    COT Data Fetcher with multiple fallbacks:
-    1. CFTC official data
-    2. Cached historical data
-    3. Synthetic positioning estimates based on price action
-    """
-    
-    FUTURES_ONLY_URL = "https://www.cftc.gov/files/dea/history/fut_disagg_txt_{year}.zip"
-    COMBINED_URL = "https://www.cftc.gov/files/dea/history/com_disagg_txt_{year}.zip"
-    
-    SYMBOL_MAP = {
-        'EUR': {'name': 'EURO FX', 'code': '099741'},
-        'GBP': {'name': 'BRITISH POUND STERLING', 'code': '096742'},
-        'JPY': {'name': 'JAPANESE YEN', 'code': '097741'},
-        'CHF': {'name': 'SWISS FRANC', 'code': '092741'},
-        'AUD': {'name': 'AUSTRALIAN DOLLAR', 'code': '232741'},
-        'CAD': {'name': 'CANADIAN DOLLAR', 'code': '090741'},
-        'NZD': {'name': 'NEW ZEALAND DOLLAR', 'code': '112741'},
-        'GOLD': {'name': 'GOLD', 'code': '088691'},
-        'SILVER': {'name': 'SILVER', 'code': '084691'},
-        'CRUDE_OIL': {'name': 'CRUDE OIL, LIGHT SWEET', 'code': '067651'},
-        'NATURAL_GAS': {'name': 'NATURAL GAS', 'code': '023651'},
-    }
-    
-    def __init__(self, cache_dir='cot_cache', use_synthetic=True):
-        import os
-        self.cache_dir = cache_dir
-        self.use_synthetic = use_synthetic
-        os.makedirs(cache_dir, exist_ok=True)
-        self.data_cache = {}
-        self.fetch_attempts = 0
-        self.fetch_successes = 0
-    
-    def fetch_cot_data(self, symbol, years_back=2):
-        """Fetch COT data with multiple fallbacks"""
+class COTDataFetcher:
+    def __init__(self):
+        self.base_url = "https://www.cftc.gov/files/dea/history"
         
-        if symbol not in self.SYMBOL_MAP:
-            print(f"  ⊘ {symbol}: Not in COT database")
+        self.cftc_codes = {
+            'EUR': '099741',
+            'GBP': '096742',
+            'JPY': '097741',
+            'CHF': '092741',
+            'CAD': '090741',
+            'AUD': '232741',
+            'NZD': '112741',
+            'MXN': '095741',
+            'GOLD': '088691',
+            'SILVER': '084691',
+            'CRUDE_OIL': '067651',
+            'NATURAL_GAS': '023651',
+            'SP500': '13874+',
+            'NASDAQ': '209742',
+            'DOW': '124603',
+            'US_DOLLAR_INDEX': '098662',
+            'BITCOIN': '133741'
+        }
+        
+        self.symbol_names = {
+            'EUR': 'Euro FX',
+            'GBP': 'British Pound',
+            'JPY': 'Japanese Yen',
+            'CHF': 'Swiss Franc',
+            'CAD': 'Canadian Dollar',
+            'AUD': 'Australian Dollar',
+            'NZD': 'New Zealand Dollar',
+            'MXN': 'Mexican Peso',
+            'GOLD': 'Gold',
+            'SILVER': 'Silver',
+            'CRUDE_OIL': 'Crude Oil WTI',
+            'NATURAL_GAS': 'Natural Gas',
+            'SP500': 'S&P 500',
+            'NASDAQ': 'NASDAQ 100',
+            'DOW': 'Dow Jones',
+            'US_DOLLAR_INDEX': 'US Dollar Index',
+            'BITCOIN': 'Bitcoin'
+        }
+    
+    def get_report_date_for_date(self, target_date):
+        if isinstance(target_date, str):
+            target_date = pd.to_datetime(target_date)
+        
+        days_since_tuesday = (target_date.weekday() - 1) % 7
+        report_tuesday = target_date - timedelta(days=days_since_tuesday)
+        release_friday = report_tuesday + timedelta(days=3)
+        
+        return report_tuesday, release_friday
+    
+    def fetch_cot_data(self, year, report_type='financial'):
+        print(f"\n[DEBUG] Fetching {report_type} data for year {year}")
+        
+        filenames = [
+            f"dea_fut_xls_{year}.zip" if report_type == 'financial' else f"dea_com_xls_{year}.zip",
+            f"deacot{year}.zip" if report_type == 'financial' else f"deacom{year}.zip",
+            f"annual.txt"
+        ]
+        
+        for idx, filename in enumerate(filenames, 1):
+            url = f"{self.base_url}/{filename}"
+            print(f"[DEBUG] Attempt {idx}/{len(filenames)}: {url}")
+            
+            try:
+                response = requests.get(url, timeout=30)
+                print(f"[DEBUG] Response status: {response.status_code}")
+                
+                if response.status_code == 200:
+                    if filename.endswith('.zip'):
+                        print(f"[DEBUG] Processing ZIP file...")
+                        with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+                            print(f"[DEBUG] ZIP contents: {z.namelist()}")
+                            
+                            for file_info in z.namelist():
+                                if file_info.endswith(('.xls', '.xlsx', '.txt')):
+                                    print(f"[DEBUG] Extracting {file_info}...")
+                                    
+                                    with z.open(file_info) as f:
+                                        file_content = f.read()
+                                        
+                                        if file_info.endswith('.txt'):
+                                            df = pd.read_csv(io.BytesIO(file_content))
+                                        else:
+                                            df = pd.read_excel(io.BytesIO(file_content))
+                                        
+                                        print(f"[DEBUG] DataFrame shape: {df.shape}")
+                                        
+                                        # Handle different date column formats
+                                        if 'Report_Date_as_MM_DD_YYYY' in df.columns:
+                                            df['Report_Date_as_YYYY-MM-DD'] = pd.to_datetime(
+                                                df['Report_Date_as_MM_DD_YYYY']
+                                            )
+                                        elif 'Report_Date_as_YYYY-MM-DD' in df.columns:
+                                            df['Report_Date_as_YYYY-MM-DD'] = pd.to_datetime(
+                                                df['Report_Date_as_YYYY-MM-DD']
+                                            )
+                                        else:
+                                            print(f"[DEBUG] No recognized date column found")
+                                            continue
+                                        
+                                        print(f"✓ Successfully loaded {len(df)} records for {year}")
+                                        return df
+                    
+                    elif filename.endswith('.txt'):
+                        df = pd.read_csv(io.StringIO(response.text))
+                        
+                        if 'Report_Date_as_MM_DD_YYYY' in df.columns:
+                            df['Report_Date_as_YYYY-MM-DD'] = pd.to_datetime(
+                                df['Report_Date_as_MM_DD_YYYY']
+                            )
+                        elif 'Report_Date_as_YYYY-MM-DD' in df.columns:
+                            df['Report_Date_as_YYYY-MM-DD'] = pd.to_datetime(
+                                df['Report_Date_as_YYYY-MM-DD']
+                            )
+                        else:
+                            continue
+                        
+                        df_year = df[df['Report_Date_as_YYYY-MM-DD'].dt.year == year]
+                        if not df_year.empty:
+                            print(f"✓ Loaded {len(df_year)} records for {year}")
+                            return df_year
+            
+            except Exception as e:
+                print(f"[ERROR] {type(e).__name__}: {e}")
+                continue
+        
+        print(f"[ERROR] Could not fetch {year} data from any source")
+        return None
+    
+    def get_symbol_data(self, symbol, start_date, end_date=None, report_type='financial'):
+        if symbol.upper() not in self.cftc_codes:
+            print(f"Symbol {symbol} not supported. Available: {list(self.cftc_codes.keys())}")
             return None
         
-        cache_key = f"{symbol}_{years_back}"
-        if cache_key in self.data_cache:
-            return self.data_cache[cache_key]
+        if isinstance(start_date, str):
+            start_date = pd.to_datetime(start_date)
+        if end_date is None:
+            end_date = datetime.now()
+        elif isinstance(end_date, str):
+            end_date = pd.to_datetime(end_date)
         
-        symbol_info = self.SYMBOL_MAP[symbol]
-        current_year = datetime.now().year
+        code = self.cftc_codes[symbol.upper()]
+        
+        start_year = start_date.year
+        end_year = end_date.year
         
         all_data = []
         
-        # Try fetching from CFTC
-        for year in range(current_year - years_back, current_year + 1):
-            self.fetch_attempts += 1
+        for year in range(start_year, end_year + 1):
+            print(f"Fetching {symbol} data for {year}...")
+            df = self.fetch_cot_data(year, report_type)
             
-            try:
-                df = self._fetch_year_data(year, symbol_info)
-                if df is not None and not df.empty:
-                    all_data.append(df)
-                    self.fetch_successes += 1
-            except Exception as e:
-                print(f"  ⊘ {symbol} {year}: {str(e)[:40]}")
+            if df is not None:
+                symbol_data = df[df['CFTC_Contract_Market_Code'] == code].copy()
+                all_data.append(symbol_data)
         
         if not all_data:
-            print(f"  ✗ {symbol}: No CFTC data available")
-            
-            # Fallback to synthetic data
-            if self.use_synthetic:
-                print(f"  → {symbol}: Using synthetic positioning estimate")
-                return self._generate_synthetic_data(symbol, years_back)
-            
             return None
         
-        # Combine all years
-        combined_df = pd.concat(all_data, ignore_index=True)
-        combined_df = combined_df.drop_duplicates(subset=['Report_Date_as_MM_DD_YYYY'])
-        combined_df = combined_df.sort_values('Report_Date_as_MM_DD_YYYY')
+        combined = pd.concat(all_data, ignore_index=True)
+        combined = combined[
+            (combined['Report_Date_as_YYYY-MM-DD'] >= start_date) &
+            (combined['Report_Date_as_YYYY-MM-DD'] <= end_date)
+        ]
+        combined = combined.sort_values('Report_Date_as_YYYY-MM-DD')
         
-        # Process the data
-        combined_df = self._process_cot_data(combined_df)
-        
-        # Cache it
-        self.data_cache[cache_key] = combined_df
-        
-        return combined_df
+        return combined
     
-    def _fetch_year_data(self, year, symbol_info):
-        """Fetch COT data for a specific year"""
+    def get_positioning_for_date(self, symbol, target_date):
+        print(f"\n[INFO] Getting positioning for {symbol} on {target_date}")
         
-        url = self.FUTURES_ONLY_URL.format(year=year)
+        report_tuesday, release_friday = self.get_report_date_for_date(target_date)
+        print(f"[INFO] Report Tuesday: {report_tuesday.strftime('%Y-%m-%d')}")
+        print(f"[INFO] Release Friday: {release_friday.strftime('%Y-%m-%d')}")
         
-        response = requests.get(url, timeout=15)
-        response.raise_for_status()
+        year = report_tuesday.year
+        df = self.fetch_cot_data(year)
         
-        from zipfile import ZipFile
-        zip_file = ZipFile(io.BytesIO(response.content))
-        
-        txt_files = [f for f in zip_file.namelist() if f.endswith('.txt')]
-        if not txt_files:
+        if df is None:
+            print(f"[ERROR] No data available for year {year}")
             return None
         
-        with zip_file.open(txt_files[0]) as f:
-            df = pd.read_csv(f, low_memory=False)
-        
-        df = df[df['CFTC_Contract_Market_Code'] == symbol_info['code']]
-        
-        return df
-    
-    def _process_cot_data(self, df):
-        """Process COT data without fragmentation"""
-        
-        if df is None or df.empty:
-            return df
-        
-        new_columns = {}
-        
-        # Date conversion
-        if 'Report_Date_as_MM_DD_YYYY' in df.columns:
-            new_columns['Report_Date_as_YYYY-MM-DD'] = pd.to_datetime(
-                df['Report_Date_as_MM_DD_YYYY'], 
-                format='%m/%d/%Y',
-                errors='coerce'
-            ).dt.strftime('%Y-%m-%d')
-        
-        # Net positions
-        if 'Noncommercial Long' in df.columns and 'Noncommercial Short' in df.columns:
-            new_columns['net_position'] = (
-                df['Noncommercial Long'].fillna(0) - df['Noncommercial Short'].fillna(0)
-            )
-        
-        if 'Commercial Long' in df.columns and 'Commercial Short' in df.columns:
-            new_columns['commercial_net'] = (
-                df['Commercial Long'].fillna(0) - df['Commercial Short'].fillna(0)
-            )
-        
-        # Open Interest percentages
-        if 'Open Interest (All)' in df.columns:
-            oi = df['Open Interest (All)'].replace(0, np.nan)
-            
-            if 'Noncommercial Long' in df.columns:
-                new_columns['noncomm_long_pct'] = (
-                    (df['Noncommercial Long'] / oi * 100).fillna(0)
-                )
-            
-            if 'Noncommercial Short' in df.columns:
-                new_columns['noncomm_short_pct'] = (
-                    (df['Noncommercial Short'] / oi * 100).fillna(0)
-                )
-        
-        # Sentiment score
-        if 'net_position' in new_columns and 'Open Interest (All)' in df.columns:
-            oi = df['Open Interest (All)'].replace(0, 1)
-            new_columns['sentiment_score'] = (
-                new_columns['net_position'] / oi
-            ).clip(-1, 1).fillna(0)
-        
-        # Net position percentage
-        if 'net_position' in new_columns and 'Open Interest (All)' in df.columns:
-            oi = df['Open Interest (All)'].replace(0, np.nan)
-            new_columns['net_position_pct'] = (
-                (new_columns['net_position'] / oi * 100).fillna(0)
-            )
-        
-        if new_columns:
-            df = pd.concat([df, pd.DataFrame(new_columns, index=df.index)], axis=1)
-        
-        return df
-    
-    def _generate_synthetic_data(self, symbol, years_back):
-        """Generate synthetic COT positioning based on typical patterns"""
-        
-        current_date = datetime.now()
-        dates = []
-        
-        # Generate weekly dates going back
-        date = current_date
-        while len(dates) < 52 * years_back:
-            dates.append(date)
-            date = date - timedelta(days=7)
-        
-        dates.reverse()
-        
-        # Generate synthetic positioning data
-        # Uses sine wave + noise to simulate positioning cycles
-        np.random.seed(hash(symbol) % 2**32)
-        
-        cycle = np.sin(np.linspace(0, 4*np.pi, len(dates)))
-        noise = np.random.randn(len(dates)) * 0.3
-        net_position = (cycle + noise) * 50000
-        
-        df = pd.DataFrame({
-            'Report_Date_as_MM_DD_YYYY': [d.strftime('%m/%d/%Y') for d in dates],
-            'Report_Date_as_YYYY-MM-DD': [d.strftime('%Y-%m-%d') for d in dates],
-            'Open Interest (All)': [200000] * len(dates),
-            'Noncommercial Long': np.maximum(net_position, 0) + 100000,
-            'Noncommercial Short': np.maximum(-net_position, 0) + 100000,
-            'net_position': net_position,
-            'net_position_pct': (net_position / 200000 * 100),
-            'sentiment_score': net_position / 200000,
-            'synthetic': True
-        })
-        
-        return df
-    
-    def get_positioning_for_date(self, symbol, date_str):
-        """Get COT positioning for a specific date"""
-        
-        df = self.fetch_cot_data(symbol, years_back=2)
-        
-        if df is None or df.empty:
+        code = self.cftc_codes.get(symbol.upper())
+        if not code:
+            print(f"[ERROR] No CFTC code found for {symbol}")
             return None
         
-        if 'Report_Date_as_YYYY-MM-DD' not in df.columns:
+        symbol_data = df[df['CFTC_Contract_Market_Code'] == code]
+        
+        if len(symbol_data) == 0:
+            print(f"[ERROR] No data found for {symbol} (code: {code})")
             return None
         
-        target_date = pd.to_datetime(date_str)
-        df['date_obj'] = pd.to_datetime(df['Report_Date_as_YYYY-MM-DD'])
+        report_data = symbol_data[
+            symbol_data['Report_Date_as_YYYY-MM-DD'] == report_tuesday
+        ]
         
-        # Find closest date (within 14 days)
-        df['date_diff'] = abs((df['date_obj'] - target_date).dt.days)
-        closest = df[df['date_diff'] <= 14].sort_values('date_diff')
+        if report_data.empty:
+            closest = symbol_data.iloc[(symbol_data['Report_Date_as_YYYY-MM-DD'] - report_tuesday).abs().argsort()[:1]]
+            if not closest.empty:
+                report_data = closest
+                print(f"[DEBUG] Using closest date: {closest['Report_Date_as_YYYY-MM-DD'].iloc[0]}")
         
-        if closest.empty:
+        if report_data.empty:
+            print(f"[ERROR] No data found for {symbol} near {report_tuesday}")
             return None
         
-        row = closest.iloc[0]
-        
-        is_synthetic = row.get('synthetic', False)
+        row = report_data.iloc[0]
         
         positioning = {
-            'report_date': row.get('Report_Date_as_YYYY-MM-DD'),
-            'symbol': symbol,
-            'net_position': float(row.get('net_position', 0)),
-            'commercial_net': float(row.get('commercial_net', 0)),
-            'noncomm_long': float(row.get('Noncommercial Long', 0)),
-            'noncomm_short': float(row.get('Noncommercial Short', 0)),
-            'open_interest': float(row.get('Open Interest (All)', 0)),
-            'net_position_pct': float(row.get('net_position_pct', 0)),
-            'sentiment_score': float(row.get('sentiment_score', 0)),
-            'positioning_signal': self._get_positioning_signal(row),
-            'data_source': 'synthetic_estimate' if is_synthetic else 'cftc_official'
+            'symbol': symbol.upper(),
+            'report_date': row['Report_Date_as_YYYY-MM-DD'].strftime('%Y-%m-%d'),
+            'release_date': release_friday.strftime('%Y-%m-%d'),
+            'dealer': {
+                'long': int(row.get('Dealer_Positions_Long_All', 0)),
+                'short': int(row.get('Dealer_Positions_Short_All', 0)),
+                'net': int(row.get('Dealer_Positions_Long_All', 0)) - int(row.get('Dealer_Positions_Short_All', 0))
+            },
+            'asset_manager': {
+                'long': int(row.get('Asset_Mgr_Positions_Long_All', 0)),
+                'short': int(row.get('Asset_Mgr_Positions_Short_All', 0)),
+                'net': int(row.get('Asset_Mgr_Positions_Long_All', 0)) - int(row.get('Asset_Mgr_Positions_Short_All', 0))
+            },
+            'leveraged': {
+                'long': int(row.get('Lev_Money_Positions_Long_All', 0)),
+                'short': int(row.get('Lev_Money_Positions_Short_All', 0)),
+                'net': int(row.get('Lev_Money_Positions_Long_All', 0)) - int(row.get('Lev_Money_Positions_Short_All', 0))
+            },
+            'other': {
+                'long': int(row.get('Other_Rept_Positions_Long_All', 0)),
+                'short': int(row.get('Other_Rept_Positions_Short_All', 0)),
+                'net': int(row.get('Other_Rept_Positions_Long_All', 0)) - int(row.get('Other_Rept_Positions_Short_All', 0))
+            },
+            'open_interest': int(row.get('Open_Interest_All', 0))
         }
+        
+        positioning['sentiment'] = self._analyze_sentiment(positioning)
         
         return positioning
     
-    def _get_positioning_signal(self, row):
-        """Determine positioning signal"""
-        net_pct = row.get('net_position_pct', 0)
+    def _analyze_sentiment(self, positioning):
+        dealer_net = positioning['dealer']['net']
+        asset_mgr_net = positioning['asset_manager']['net']
+        leveraged_net = positioning['leveraged']['net']
         
-        if net_pct > 20:
-            return 'EXTREMELY_BULLISH'
-        elif net_pct > 10:
-            return 'BULLISH'
-        elif net_pct < -20:
-            return 'EXTREMELY_BEARISH'
-        elif net_pct < -10:
-            return 'BEARISH'
-        else:
+        oi = positioning['open_interest']
+        if oi == 0:
             return 'NEUTRAL'
-    
-    def get_positioning_trend(self, symbol, date_str, lookback_weeks=4):
-        """Analyze positioning trend"""
         
-        df = self.fetch_cot_data(symbol, years_back=1)
+        dealer_pct = (dealer_net / oi) * 100
+        asset_pct = (asset_mgr_net / oi) * 100
+        lev_pct = (leveraged_net / oi) * 100
         
-        if df is None or df.empty:
-            return None
+        smart_money = dealer_pct + asset_pct
         
-        target_date = pd.to_datetime(date_str)
-        df['date_obj'] = pd.to_datetime(df['Report_Date_as_YYYY-MM-DD'])
+        if smart_money > 15:
+            sentiment = 'BULLISH'
+        elif smart_money < -15:
+            sentiment = 'BEARISH'
+        else:
+            sentiment = 'NEUTRAL'
         
-        cutoff_date = target_date - timedelta(weeks=lookback_weeks)
-        recent = df[
-            (df['date_obj'] >= cutoff_date) & 
-            (df['date_obj'] <= target_date)
-        ].sort_values('date_obj')
+        extreme = ''
+        if abs(lev_pct) > 30:
+            extreme = ' (EXTREME - REVERSAL RISK)'
         
-        if len(recent) < 2:
-            return None
-        
-        net_positions = recent['net_position'].values
-        
-        trend = {
-            'symbol': symbol,
-            'weeks_analyzed': len(recent),
-            'current_net': float(net_positions[-1]) if len(net_positions) > 0 else 0,
-            'previous_net': float(net_positions[0]) if len(net_positions) > 0 else 0,
-            'net_change': float(net_positions[-1] - net_positions[0]) if len(net_positions) > 1 else 0,
-            'trend_direction': 'INCREASING' if net_positions[-1] > net_positions[0] else 'DECREASING',
-            'avg_net': float(np.mean(net_positions)),
-            'volatility': float(np.std(net_positions))
+        positioning['analysis'] = {
+            'dealer_net_pct': round(dealer_pct, 2),
+            'asset_mgr_net_pct': round(asset_pct, 2),
+            'leveraged_net_pct': round(lev_pct, 2),
+            'smart_money_net_pct': round(smart_money, 2)
         }
         
-        return trend
+        return sentiment + extreme
     
-    def get_statistics(self):
-        """Get fetcher statistics"""
-        success_rate = (self.fetch_successes / self.fetch_attempts * 100) if self.fetch_attempts > 0 else 0
+    def compare_positioning(self, symbol, date1, date2):
+        pos1 = self.get_positioning_for_date(symbol, date1)
+        pos2 = self.get_positioning_for_date(symbol, date2)
         
-        return {
-            'fetch_attempts': self.fetch_attempts,
-            'fetch_successes': self.fetch_successes,
-            'success_rate': f"{success_rate:.1f}%",
-            'symbols_cached': len(self.data_cache),
-            'using_synthetic': self.use_synthetic
+        if not pos1 or not pos2:
+            return None
+        
+        change = {
+            'symbol': symbol.upper(),
+            'from_date': pos1['report_date'],
+            'to_date': pos2['report_date'],
+            'dealer_net_change': pos2['dealer']['net'] - pos1['dealer']['net'],
+            'asset_mgr_net_change': pos2['asset_manager']['net'] - pos1['asset_manager']['net'],
+            'leveraged_net_change': pos2['leveraged']['net'] - pos1['leveraged']['net'],
+            'sentiment_change': f"{pos1['sentiment']} → {pos2['sentiment']}"
         }
-
-
-class COTDataFetcher(EnhancedCOTDataFetcher):
-    """Backward compatibility alias"""
-    pass
+        
+        return change
 
 
 if __name__ == "__main__":
+    fetcher = COTDataFetcher()
+    
     print("="*80)
-    print("ENHANCED COT DATA FETCHER TEST")
+    print("COT DATA FETCHER - FIXED VERSION")
     print("="*80)
     
-    fetcher = EnhancedCOTDataFetcher()
+    symbols = ['EUR', 'GOLD', 'CRUDE_OIL']
+    test_date = '2024-11-01'
     
-    # Test multiple symbols
-    test_symbols = ['EUR', 'GOLD', 'CRUDE_OIL', 'GBP']
-    results = []
-    
-    print("\nFetching COT data for multiple symbols...")
-    print("-" * 80)
-    
-    for symbol in test_symbols:
-        print(f"\n{symbol}:")
-        positioning = fetcher.get_positioning_for_date(symbol, '2024-11-01')
+    for symbol in symbols:
+        print(f"\n{'='*80}")
+        print(f"Symbol: {symbol} | Date: {test_date}")
+        print('='*80)
+        
+        positioning = fetcher.get_positioning_for_date(symbol, test_date)
         
         if positioning:
-            print(f"  ✓ Report Date: {positioning['report_date']}")
-            print(f"  Net Position: {positioning['net_position']:,.0f}")
-            print(f"  Signal: {positioning['positioning_signal']}")
-            print(f"  Source: {positioning['data_source']}")
-            results.append(symbol)
+            print(f"\n✓ SUCCESS!")
+            print(f"Report Date: {positioning['report_date']}")
+            print(f"Release Date: {positioning['release_date']}")
+            print(f"Sentiment: {positioning['sentiment']}")
+            print(f"Open Interest: {positioning['open_interest']:,}")
         else:
-            print(f"  ✗ No data available")
+            print(f"\n✗ FAILED - No data available for {symbol}")
     
-    # Statistics
-    stats = fetcher.get_statistics()
-    
-    print("\n" + "="*80)
-    print("STATISTICS")
-    print("="*80)
-    print(f"Symbols with data: {len(results)}/{len(test_symbols)}")
-    print(f"CFTC fetch success rate: {stats['success_rate']}")
-    print(f"Synthetic fallback: {'Enabled' if stats['using_synthetic'] else 'Disabled'}")
-    
-    print("\n" + "="*80)
-    print("✓ TEST COMPLETE")
-    print("="*80)
+    print(f"\n{'='*80}")
+    print("Test complete")
+    print('='*80)
