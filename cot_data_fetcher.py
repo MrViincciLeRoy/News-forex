@@ -2,6 +2,8 @@ import pandas as pd
 import requests
 from datetime import datetime, timedelta
 import io
+import zipfile
+
 
 class COTDataFetcher:
     def __init__(self):
@@ -59,19 +61,23 @@ class COTDataFetcher:
     
     def fetch_cot_data(self, year, report_type='financial'):
         """
-        Fetch COT data from CFTC using new Excel format
+        Fetch COT data from CFTC using correct URL patterns
+        CFTC uses different formats: dea_fut_xls_YYYY.zip for recent years
         """
+        filenames = []
+        
         if report_type == 'financial':
+            # Try multiple URL patterns
             filenames = [
-                f"FinFutYY.xls",
-                f"FinFut{str(year)[-2:]}.xls",
-                f"f_year.txt"
+                f"dea_fut_xls_{year}.zip",  # New format (2017+)
+                f"deacot{year}.zip",         # Old format
+                f"annual.txt"                 # Text fallback
             ]
         else:
             filenames = [
-                f"ComYY.xls",
-                f"Com{str(year)[-2:]}.xls",
-                f"c_year.txt"
+                f"dea_com_xls_{year}.zip",
+                f"deacom{year}.zip",
+                f"annual.txt"
             ]
         
         for filename in filenames:
@@ -80,20 +86,43 @@ class COTDataFetcher:
                 response = requests.get(url, timeout=30)
                 if response.status_code == 200:
                     try:
-                        if filename.endswith('.txt'):
-                            df = pd.read_csv(io.StringIO(response.text))
-                        else:
-                            df = pd.read_excel(io.BytesIO(response.content))
+                        # Handle ZIP files
+                        if filename.endswith('.zip'):
+                            with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+                                # Look for Excel or text files
+                                for file_info in z.namelist():
+                                    if file_info.endswith(('.xls', '.xlsx', '.txt')):
+                                        with z.open(file_info) as f:
+                                            if file_info.endswith('.txt'):
+                                                df = pd.read_csv(f)
+                                            else:
+                                                df = pd.read_excel(f)
+                                            
+                                            # Verify we have the right columns
+                                            if 'Report_Date_as_YYYY-MM-DD' in df.columns:
+                                                df['Report_Date_as_YYYY-MM-DD'] = pd.to_datetime(
+                                                    df['Report_Date_as_YYYY-MM-DD']
+                                                )
+                                                print(f"✓ Loaded {len(df)} records for {year} from {filename}")
+                                                return df
                         
-                        if 'Report_Date_as_YYYY-MM-DD' in df.columns:
-                            df['Report_Date_as_YYYY-MM-DD'] = pd.to_datetime(df['Report_Date_as_YYYY-MM-DD'])
-                            df_year = df[df['Report_Date_as_YYYY-MM-DD'].dt.year == year]
-                            if not df_year.empty:
-                                print(f"✓ Loaded {len(df_year)} records for {year} from {filename}")
-                                return df_year
+                        # Handle direct text files
+                        elif filename.endswith('.txt'):
+                            df = pd.read_csv(io.StringIO(response.text))
+                            if 'Report_Date_as_YYYY-MM-DD' in df.columns:
+                                df['Report_Date_as_YYYY-MM-DD'] = pd.to_datetime(
+                                    df['Report_Date_as_YYYY-MM-DD']
+                                )
+                                df_year = df[df['Report_Date_as_YYYY-MM-DD'].dt.year == year]
+                                if not df_year.empty:
+                                    print(f"✓ Loaded {len(df_year)} records for {year}")
+                                    return df_year
+                    
                     except Exception as parse_error:
+                        print(f"  Parse error for {filename}: {parse_error}")
                         continue
-            except:
+            
+            except Exception as e:
                 continue
         
         print(f"✗ Could not fetch {year} data from CFTC")
@@ -257,7 +286,7 @@ if __name__ == "__main__":
     fetcher = COTDataFetcher()
     
     print("="*80)
-    print("COT DATA FETCHER - Testing with Fixed URLs")
+    print("COT DATA FETCHER - Testing with Corrected CFTC URLs")
     print("="*80)
     
     symbols = ['EUR', 'GOLD', 'CRUDE_OIL']
@@ -300,6 +329,20 @@ if __name__ == "__main__":
                 print(f"  Smart Money: {positioning['analysis']['smart_money_net_pct']}% of OI")
         else:
             print(f"No data available for {symbol}")
+    
+    print(f"\n{'='*80}")
+    print("Comparing EUR positioning (2 weeks)")
+    print('='*80)
+    
+    comparison = fetcher.compare_positioning('EUR', '2024-10-15', '2024-10-29')
+    if comparison:
+        print(f"\nFrom: {comparison['from_date']}")
+        print(f"To: {comparison['to_date']}")
+        print(f"\nChanges in Net Positioning:")
+        print(f"  Dealers: {comparison['dealer_net_change']:+,}")
+        print(f"  Asset Managers: {comparison['asset_mgr_net_change']:+,}")
+        print(f"  Hedge Funds: {comparison['leveraged_net_change']:+,}")
+        print(f"\nSentiment: {comparison['sentiment_change']}")
     
     print(f"\n{'='*80}")
     print("Test complete")
