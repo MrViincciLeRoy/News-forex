@@ -9,6 +9,7 @@ import pandas as pd
 from typing import List, Dict, Set, Tuple
 import json
 import re
+from datetime import datetime
 
 
 class HFEntityExtractor:
@@ -18,16 +19,9 @@ class HFEntityExtractor:
     """
     
     def __init__(self, model_name: str = "dslim/bert-base-NER"):
-        """
-        Initialize NER model
-        
-        Args:
-            model_name: HuggingFace NER model
-        """
         self.model_name = model_name
         self.pipeline = None
         
-        # Financial entity mappings
         self.entity_mappings = {
             'companies': {
                 'apple': 'AAPL', 'microsoft': 'MSFT', 'google': 'GOOGL', 
@@ -62,7 +56,6 @@ class HFEntityExtractor:
         print(f"Initializing HF Entity Extractor: {model_name}")
     
     def load_model(self):
-        """Load NER pipeline from HuggingFace"""
         try:
             from transformers import pipeline
             
@@ -81,14 +74,12 @@ class HFEntityExtractor:
             return False
     
     def extract_entities(self, text: str) -> Dict[str, List[str]]:
-        """Extract entities from text"""
         if self.pipeline:
             return self._extract_with_model(text)
         else:
             return self._extract_with_rules(text)
     
     def _extract_with_model(self, text: str) -> Dict[str, List[str]]:
-        """Extract entities using NER model"""
         try:
             results = self.pipeline(text)
             
@@ -104,7 +95,7 @@ class HFEntityExtractor:
                 entity_text = entity['word']
                 score = entity['score']
                 
-                if score > 0.5:  # Confidence threshold
+                if score > 0.5:
                     if entity_type in ['ORG', 'ORGANIZATION']:
                         entities['organizations'].append(entity_text)
                     elif entity_type in ['PER', 'PERSON']:
@@ -114,7 +105,6 @@ class HFEntityExtractor:
                     else:
                         entities['miscellaneous'].append(entity_text)
             
-            # Deduplicate
             for key in entities:
                 entities[key] = list(set(entities[key]))
             
@@ -125,7 +115,6 @@ class HFEntityExtractor:
             return self._extract_with_rules(text)
     
     def _extract_with_rules(self, text: str) -> Dict[str, List[str]]:
-        """Fallback rule-based extraction"""
         text_lower = text.lower()
         
         found_entities = {
@@ -136,26 +125,22 @@ class HFEntityExtractor:
             'economic_indicators': []
         }
         
-        # Search for known entities
         for category, mappings in self.entity_mappings.items():
             for entity_name in mappings.keys():
                 if entity_name in text_lower:
                     found_entities[category].append(entity_name)
         
-        # Extract ticker symbols (e.g., AAPL, MSFT)
         ticker_pattern = r'\b[A-Z]{1,5}\b'
         tickers = re.findall(ticker_pattern, text)
         if tickers:
             found_entities['tickers'] = tickers
         
-        # Deduplicate
         for key in found_entities:
             found_entities[key] = list(set(found_entities[key]))
         
         return found_entities
     
     def map_to_symbols(self, entities: Dict[str, List[str]]) -> Set[str]:
-        """Map extracted entities to trading symbols"""
         symbols = set()
         
         for category, entity_list in entities.items():
@@ -165,24 +150,18 @@ class HFEntityExtractor:
                     if entity_lower in self.entity_mappings[category]:
                         symbols.add(self.entity_mappings[category][entity_lower])
         
-        # Add any explicit tickers found
         if 'tickers' in entities:
             symbols.update(entities['tickers'])
         
         return symbols
     
     def analyze_article(self, article: Dict) -> Dict:
-        """Extract entities and symbols from article"""
         title = article.get('title', '')
         content = article.get('content', '')
         
-        # Combine title and content
         full_text = f"{title}. {content}"
         
-        # Extract entities
         entities = self.extract_entities(full_text)
-        
-        # Map to symbols
         symbols = self.map_to_symbols(entities)
         
         return {
@@ -193,7 +172,6 @@ class HFEntityExtractor:
         }
     
     def analyze_batch(self, articles: List[Dict]) -> List[Dict]:
-        """Analyze multiple articles"""
         results = []
         
         print(f"Analyzing {len(articles)} articles for entities...")
@@ -208,7 +186,6 @@ class HFEntityExtractor:
         return results
     
     def aggregate_symbols(self, analyzed_articles: List[Dict]) -> Dict:
-        """Aggregate symbols across all articles"""
         all_symbols = set()
         symbol_frequency = {}
         
@@ -219,7 +196,6 @@ class HFEntityExtractor:
             for symbol in symbols:
                 symbol_frequency[symbol] = symbol_frequency.get(symbol, 0) + 1
         
-        # Sort by frequency
         sorted_symbols = sorted(symbol_frequency.items(), key=lambda x: x[1], reverse=True)
         
         return {
@@ -230,7 +206,6 @@ class HFEntityExtractor:
         }
     
     def save_results(self, results: Dict, filepath: str):
-        """Save extraction results"""
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(results, f, indent=2, ensure_ascii=False)
         print(f"✓ Saved: {filepath}")
@@ -296,7 +271,6 @@ if __name__ == "__main__":
         else:
             print(f"   ➜ No symbols mapped")
     
-    # Aggregate
     aggregated = extractor.aggregate_symbols(results)
     
     print("\n" + "="*80)
@@ -308,7 +282,6 @@ if __name__ == "__main__":
         freq = aggregated['symbol_frequency'][symbol]
         print(f"  {i}. {symbol}: {freq} mentions")
     
-    # Save
     output = {
         'analyzed_articles': results,
         'aggregated_symbols': aggregated,
