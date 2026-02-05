@@ -1,6 +1,6 @@
 """
-Comprehensive Analysis Pipeline - CORRECTED VERSION
-All warnings suppressed, better parsing, visualization support
+Comprehensive Analysis Pipeline - FIXED VERSION
+Properly handles FRED API keys and other secrets
 """
 
 import pandas as pd
@@ -13,9 +13,7 @@ import psutil
 import gc
 from pathlib import Path
 
-# ============================================================================
-# WARNINGS SUPPRESSION - Fixes BERT and DataFrame warnings
-# ============================================================================
+# Warnings suppression
 import warnings
 from transformers import logging as transformers_logging
 
@@ -25,14 +23,12 @@ warnings.filterwarnings('ignore', category=UserWarning)
 try:
     warnings.filterwarnings('ignore', category=pd.errors.PerformanceWarning)
 except AttributeError:
-    pass  # Older pandas versions
+    pass
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
-# ============================================================================
 
 # Safe math helpers
 def safe_float(value, default=0.0):
-    """Safely convert to float, handling NaN"""
     try:
         v = float(value)
         return default if np.isnan(v) or np.isinf(v) else v
@@ -40,7 +36,6 @@ def safe_float(value, default=0.0):
         return default
 
 def safe_pie_data(data_dict):
-    """Ensure pie chart data is valid"""
     clean = {}
     for k, v in data_dict.items():
         val = safe_float(v, 0)
@@ -54,7 +49,6 @@ def safe_pie_data(data_dict):
 
 # Memory utilities
 def get_memory_info():
-    """Get current memory stats"""
     vm = psutil.virtual_memory()
     process = psutil.Process()
     
@@ -66,10 +60,9 @@ def get_memory_info():
     }
 
 def can_use_memory(required_mb):
-    """Check if we have enough memory"""
     mem = get_memory_info()
     available_mb = mem['available_gb'] * 1024
-    target_usage = 0.80  # Use up to 80%
+    target_usage = 0.80
     
     total_mb = mem['total_gb'] * 1024
     max_usable = total_mb * target_usage
@@ -126,8 +119,6 @@ except ImportError:
 
 
 class MemoryAwareHFLoader:
-    """Intelligently load HF models based on available memory"""
-    
     MODEL_MEMORY = {
         'sentiment': 500,
         'ner': 400,
@@ -143,7 +134,6 @@ class MemoryAwareHFLoader:
         self.memory_budget_used = 0
         
     def load_models(self, max_memory_mb=None):
-        """Load as many models as memory allows"""
         if max_memory_mb is None:
             mem = get_memory_info()
             max_memory_mb = mem['available_gb'] * 1024 * 0.80
@@ -178,7 +168,6 @@ class MemoryAwareHFLoader:
         return self.loaded_models
     
     def _load_model(self, model_name):
-        """Load specific model with warning suppression"""
         if model_name == 'sentiment':
             from hf_method1_sentiment import HFSentimentAnalyzer
             analyzer = HFSentimentAnalyzer()
@@ -213,7 +202,7 @@ class MemoryAwareHFLoader:
 
 
 class ComprehensiveAnalysisPipeline:
-    """Comprehensive pipeline with all fixes applied"""
+    """Comprehensive pipeline with FIXED API key handling"""
     
     def __init__(self, output_dir='pipeline_output', enable_hf=True, enable_viz=True):
         self.output_dir = output_dir
@@ -226,12 +215,15 @@ class ComprehensiveAnalysisPipeline:
         mem_start = get_memory_info()
         
         print("="*80)
-        print("COMPREHENSIVE ANALYSIS PIPELINE - CORRECTED VERSION")
+        print("COMPREHENSIVE ANALYSIS PIPELINE - FIXED VERSION")
         print("="*80)
         print(f"System Memory: {mem_start['total_gb']}GB total")
         print(f"Warnings: Suppressed for clean output")
         print(f"Visualizations: {'Enabled' if enable_viz else 'Disabled'}")
         print("="*80)
+        
+        # **FIX: Check API keys BEFORE initializing modules**
+        self._validate_api_keys()
         
         print("\nInitializing core modules...")
         
@@ -240,7 +232,14 @@ class ComprehensiveAnalysisPipeline:
         self.cot_fetcher = COTDataFetcher() if COTDataFetcher else None
         self.indicator_calc = SymbolIndicatorCalculator() if SymbolIndicatorCalculator else None
         self.corr_analyzer = CorrelationAnalyzer() if CorrelationAnalyzer else None
-        self.econ_indicators = EconomicIndicatorIntegration() if EconomicIndicatorIntegration else None
+        
+        # **FIX: Pass FRED key explicitly to EconomicIndicatorIntegration**
+        fred_key = os.environ.get('FRED_API_KEY', '')
+        if EconomicIndicatorIntegration:
+            self.econ_indicators = EconomicIndicatorIntegration(fred_key=fred_key)
+        else:
+            self.econ_indicators = None
+        
         self.seasonality = SeasonalityAnalyzer() if SeasonalityAnalyzer else None
         self.market_structure = MarketStructureAnalyzer() if MarketStructureAnalyzer else None
         self.volume_analyzer = VolumeAnalyzer() if VolumeAnalyzer else None
@@ -258,8 +257,40 @@ class ComprehensiveAnalysisPipeline:
         print(f"\n📊 Memory: {mem_end['process_mb']}MB process, {mem_end['used_percent']:.1f}% system")
         print("="*80 + "\n")
     
+    def _validate_api_keys(self):
+        """**FIX: Validate API keys and show clear status**"""
+        print("\nAPI Key Configuration:")
+        print("-" * 80)
+        
+        fred_key = os.environ.get('FRED_API_KEY', '')
+        av_keys = []
+        for i in range(1, 7):
+            key = os.environ.get(f'ALPHA_VANTAGE_API_KEY_{i}', '')
+            if key:
+                av_keys.append(key)
+        
+        if not av_keys:
+            av_keys.append(os.environ.get('ALPHA_VANTAGE_API_KEY', ''))
+        av_keys = [k for k in av_keys if k]
+        
+        if fred_key:
+            print(f"  ✓ FRED_API_KEY: Configured ({len(fred_key)} chars)")
+        else:
+            print(f"  ✗ FRED_API_KEY: NOT SET (economic indicators will fail)")
+        
+        if av_keys:
+            print(f"  ✓ ALPHA_VANTAGE: {len(av_keys)} key(s) configured")
+        else:
+            print(f"  ⊘ ALPHA_VANTAGE: No keys (some features limited)")
+        
+        print("-" * 80)
+        
+        if not fred_key and not av_keys:
+            print("\n⚠️  WARNING: No API keys configured!")
+            print("   Set FRED_API_KEY and/or ALPHA_VANTAGE_API_KEY_1")
+            print("   in your environment or GitHub Secrets\n")
+    
     def _extract_symbols_from_text(self, text):
-        """Extract financial symbols from text"""
         symbols = set()
         
         symbol_map = {
@@ -285,8 +316,6 @@ class ComprehensiveAnalysisPipeline:
         return list(symbols)
     
     def analyze(self, date, event_name=None, symbols=None):
-        """Run comprehensive analysis"""
-        
         print("="*80)
         print(f"ANALYSIS: {event_name or 'Market Analysis'}")
         print(f"Date: {date}")
@@ -350,12 +379,17 @@ class ComprehensiveAnalysisPipeline:
             corr_results = self._analyze_correlations(date, symbols[:5])
             results['sections']['correlations'] = corr_results
         
-        # 5. ECONOMIC
+        # 5. ECONOMIC - **FIX: Better error handling**
         if self.econ_indicators:
             print("\n💹 SECTION 5: ECONOMIC INDICATORS")
             print("-" * 80)
             econ_results = self._analyze_economic(date)
             results['sections']['economic'] = econ_results
+        else:
+            print("\n💹 SECTION 5: ECONOMIC INDICATORS")
+            print("-" * 80)
+            print("  ⊘ Economic indicators module not available")
+            results['sections']['economic'] = None
         
         # 6. STRUCTURE
         if self.market_structure:
@@ -417,7 +451,6 @@ class ComprehensiveAnalysisPipeline:
         return results
     
     def _analyze_news(self, date, event_name):
-        """News analysis"""
         results = {'articles': [], 'impact_analysis': None, 'extracted_symbols': []}
         
         if not self.news_fetcher:
@@ -447,7 +480,6 @@ class ComprehensiveAnalysisPipeline:
         return results
     
     def _analyze_cot(self, date, symbols):
-        """COT positioning"""
         results = {}
         
         if not self.cot_fetcher:
@@ -472,7 +504,6 @@ class ComprehensiveAnalysisPipeline:
         return results
     
     def _analyze_indicators(self, date, symbols):
-        """Technical indicators"""
         results = {}
         
         if not self.indicator_calc:
@@ -490,7 +521,6 @@ class ComprehensiveAnalysisPipeline:
         return results
     
     def _analyze_correlations(self, date, symbols):
-        """Correlation analysis"""
         results = {}
         
         for symbol in symbols:
@@ -505,18 +535,39 @@ class ComprehensiveAnalysisPipeline:
         return results
     
     def _analyze_economic(self, date):
-        """Economic indicators"""
+        """**FIX: Better error handling for FRED API key issues**"""
+        if not self.econ_indicators:
+            print("  ⊘ Economic indicators module not loaded")
+            return None
+        
         try:
             snapshot = self.econ_indicators.get_economic_snapshot(date)
-            status = snapshot.get('overall_economic_status', 'N/A')
-            print(f"  ✓ Economic: {status}")
-            return snapshot
+            
+            if snapshot:
+                status = snapshot.get('overall_economic_status', 'N/A')
+                
+                # Check if we got actual data or just defaults
+                has_data = (
+                    snapshot.get('interest_rates') is not None or
+                    snapshot.get('inflation') is not None or
+                    snapshot.get('employment') is not None
+                )
+                
+                if has_data:
+                    print(f"  ✓ Economic: {status}")
+                else:
+                    print(f"  ⊘ Economic: {status} (no FRED data - check API key)")
+                
+                return snapshot
+            else:
+                print(f"  ⊘ Economic: No data available")
+                return None
+                
         except Exception as e:
-            print(f"  ⊘ Error: {str(e)[:50]}")
+            print(f"  ✗ Economic: Error - {str(e)[:50]}")
             return None
     
     def _analyze_structure(self, date, symbols):
-        """Market structure"""
         results = {}
         
         for symbol in symbols:
@@ -531,7 +582,6 @@ class ComprehensiveAnalysisPipeline:
         return results
     
     def _analyze_seasonality(self, symbols):
-        """Seasonality patterns"""
         results = {}
         
         for symbol in symbols:
@@ -546,7 +596,6 @@ class ComprehensiveAnalysisPipeline:
         return results
     
     def _analyze_volume(self, date, symbols):
-        """Volume analysis"""
         results = {}
         
         for symbol in symbols:
@@ -561,7 +610,6 @@ class ComprehensiveAnalysisPipeline:
         return results
     
     def _run_hf_methods(self, date, event_name, news_results, symbols, indicator_results):
-        """Run HF AI methods"""
         hf_results = {}
         articles = news_results.get('articles', [])
         
@@ -648,7 +696,6 @@ class ComprehensiveAnalysisPipeline:
         return hf_results
     
     def _synthesize(self, results):
-        """Synthesize insights"""
         insights = {
             'summary': [],
             'key_findings': [],
@@ -708,7 +755,6 @@ class ComprehensiveAnalysisPipeline:
         return insights
     
     def _generate_visualizations(self, results):
-        """Generate visualizations"""
         viz_results = {'charts_created': 0, 'chart_files': []}
         
         try:
@@ -788,7 +834,6 @@ class ComprehensiveAnalysisPipeline:
         return viz_results
     
     def _save_results(self, results, date, event_name):
-        """Save results"""
         date_clean = date.replace('-', '_')
         event_clean = (event_name or 'analysis').replace(' ', '_').lower()
         
@@ -800,7 +845,6 @@ class ComprehensiveAnalysisPipeline:
         return filename
     
     def generate_markdown_report(self, results):
-        """Generate markdown report"""
         lines = [
             "# COMPREHENSIVE MARKET ANALYSIS",
             "",

@@ -1,472 +1,410 @@
 """
-News Fetcher
-Retrieves financial news from GDELT API for any given date or date range
-Provides clean, structured news data for downstream analysis
+Enhanced News Fetcher with Multiple Sources
+Fixes timeout issues by trying multiple news APIs and RSS feeds
 """
 
-import pandas as pd
 import requests
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional
 import json
 import time
+from typing import List, Dict, Optional
+import feedparser
+from bs4 import BeautifulSoup
+import os
 
 
-class NewsFetcher:
+class EnhancedNewsFetcher:
     """
-    Fetches financial news from GDELT Project API
-    Supports single date, date range, and event-specific queries
+    Multi-source news fetcher with fallbacks:
+    1. NewsAPI (if API key available)
+    2. Google News RSS
+    3. Bing News API
+    4. Yahoo Finance RSS
+    5. Reuters RSS
     """
     
     def __init__(self):
-        self.base_url = "https://api.gdeltproject.org/api/v2/doc/doc"
-        self.cache = {}
-        self.rate_limit_delay = 0.5  # seconds between requests
+        self.newsapi_key = os.environ.get('NEWSAPI_KEY', '')
+        self.bing_key = os.environ.get('BING_NEWS_KEY', '')
         
-        # Predefined search queries for common financial events
-        self.event_queries = {
-            'Non-Farm Payrolls': 'nonfarm payrolls jobs report employment',
-            'NFP': 'nonfarm payrolls jobs report employment',
-            'Consumer Price Index': 'CPI inflation consumer prices',
-            'CPI': 'CPI inflation consumer prices',
-            'Producer Price Index': 'PPI producer prices inflation',
-            'PPI': 'PPI producer prices inflation',
-            'Retail Sales': 'retail sales consumer spending economy',
-            'ISM Manufacturing': 'ISM manufacturing PMI economy index',
-            'ISM Services': 'ISM services PMI economy index',
-            'FOMC': 'Federal Reserve FOMC interest rate decision',
-            'Fed': 'Federal Reserve interest rate monetary policy',
-            'Jobless Claims': 'unemployment jobless claims weekly',
-            'GDP': 'GDP gross domestic product economy growth',
-            'Unemployment': 'unemployment rate jobs labor market',
-            'Housing': 'housing starts building permits real estate',
-            'Gold': 'gold prices precious metals XAU',
-            'Oil': 'oil prices crude WTI Brent energy',
-            'Dollar': 'dollar DXY currency forex exchange rate',
-            'Stock Market': 'stock market S&P Dow NASDAQ equity',
-            'Treasury': 'treasury bonds yields interest rates',
-            'Inflation': 'inflation prices CPI PPI cost of living',
-            'Central Bank': 'central bank monetary policy rate decision'
-        }
-    
-    def fetch_news(self, date: str, query: str = 'economy finance market', 
-                   max_records: int = 10, language: str = 'english',
-                   timespan: str = 'day') -> List[Dict]:
-        """
-        Fetch news for a specific date
-        
-        Args:
-            date: Date in 'YYYY-MM-DD' format
-            query: Search query terms
-            max_records: Maximum number of articles to retrieve
-            language: Article language filter
-            timespan: Time window ('day', 'hour', 'week')
-            
-        Returns:
-            List of news articles with metadata
-        """
-        # Parse date
-        try:
-            date_obj = datetime.strptime(date, '%Y-%m-%d')
-        except ValueError:
-            print(f"Invalid date format: {date}. Use YYYY-MM-DD")
-            return []
-        
-        # Create cache key
-        cache_key = f"{date}_{query}_{max_records}"
-        if cache_key in self.cache:
-            print(f"  Using cached results for {date}")
-            return self.cache[cache_key]
-        
-        # Build datetime range
-        if timespan == 'day':
-            start_datetime = date_obj.strftime('%Y%m%d') + '000000'
-            end_datetime = date_obj.strftime('%Y%m%d') + '235959'
-        elif timespan == 'hour':
-            start_datetime = date_obj.strftime('%Y%m%d%H') + '0000'
-            end_datetime = date_obj.strftime('%Y%m%d%H') + '5959'
-        elif timespan == 'week':
-            start_datetime = (date_obj - timedelta(days=3)).strftime('%Y%m%d') + '000000'
-            end_datetime = (date_obj + timedelta(days=3)).strftime('%Y%m%d') + '235959'
-        else:
-            start_datetime = date_obj.strftime('%Y%m%d') + '000000'
-            end_datetime = date_obj.strftime('%Y%m%d') + '235959'
-        
-        # API parameters
-        params = {
-            'query': query,
-            'mode': 'artlist',
-            'maxrecords': max_records * 2,  # Request more, filter later
-            'format': 'json',
-            'startdatetime': start_datetime,
-            'enddatetime': end_datetime,
-            'sourcelang': language
+        # RSS feeds (no API key needed!)
+        self.rss_feeds = {
+            'google_news': 'https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en',
+            'yahoo_finance': 'https://finance.yahoo.com/rss/headline',
+            'reuters_business': 'https://www.reutersagency.com/feed/?taxonomy=best-topics&post_type=best',
         }
         
-        print(f"  Fetching news for {date} | Query: '{query}'")
-        
-        try:
-            response = requests.get(self.base_url, params=params, timeout=15)
-            
-            if response.status_code == 200:
-                data = response.json()
-                articles = []
-                
-                if 'articles' in data and data['articles']:
-                    for article in data['articles'][:max_records]:
-                        articles.append({
-                            'title': article.get('title', 'No title'),
-                            'url': article.get('url', ''),
-                            'source': article.get('domain', 'Unknown'),
-                            'language': article.get('language', 'unknown'),
-                            'date': date,
-                            'seendate': article.get('seendate', ''),
-                            'socialimage': article.get('socialimage', ''),
-                            'domain_country': article.get('sourcecountry', '')
-                        })
-                    
-                    print(f"  ✓ Retrieved {len(articles)} articles")
-                    
-                    # Cache results
-                    self.cache[cache_key] = articles
-                    
-                    # Rate limiting
-                    time.sleep(self.rate_limit_delay)
-                    
-                    return articles
-                else:
-                    print(f"  ✗ No articles found for {date}")
-                    return []
-            else:
-                print(f"  ✗ Request failed: HTTP {response.status_code}")
-                return []
-                
-        except requests.exceptions.Timeout:
-            print(f"  ✗ Request timeout for {date}")
-            return []
-        except requests.exceptions.RequestException as e:
-            print(f"  ✗ Request error: {e}")
-            return []
-        except json.JSONDecodeError:
-            print(f"  ✗ Failed to parse JSON response")
-            return []
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
     
-    def fetch_news_range(self, start_date: str, end_date: str, 
-                         query: str = 'economy finance market',
-                         max_records_per_day: int = 5) -> Dict[str, List[Dict]]:
+    def fetch_event_news(self, date: str, event_name: str, max_records: int = 10) -> List[Dict]:
         """
-        Fetch news for a date range
+        Fetch news for specific event with multiple fallbacks
         
         Args:
-            start_date: Start date 'YYYY-MM-DD'
-            end_date: End date 'YYYY-MM-DD'
-            query: Search query
-            max_records_per_day: Articles per day
+            date: Date string 'YYYY-MM-DD'
+            event_name: Event name (e.g., 'Non-Farm Payrolls')
+            max_records: Maximum articles to return
             
         Returns:
-            Dictionary mapping dates to article lists
+            List of article dictionaries
         """
-        start = datetime.strptime(start_date, '%Y-%m-%d')
-        end = datetime.strptime(end_date, '%Y-%m-%d')
-        
-        if start > end:
-            print("Start date must be before end date")
-            return {}
-        
-        delta = (end - start).days + 1
-        print(f"\nFetching news from {start_date} to {end_date} ({delta} days)")
-        
-        results = {}
-        
-        for i in range(delta):
-            current_date = start + timedelta(days=i)
-            date_str = current_date.strftime('%Y-%m-%d')
-            
-            # Skip weekends for financial news (optional)
-            if current_date.weekday() >= 5:  # Saturday=5, Sunday=6
-                print(f"  Skipping weekend: {date_str}")
-                continue
-            
-            articles = self.fetch_news(date_str, query, max_records_per_day)
-            if articles:
-                results[date_str] = articles
-        
-        print(f"\n✓ Fetched news for {len(results)} days")
-        return results
-    
-    def fetch_event_news(self, event_date: str, event_name: str,
-                         max_records: int = 10, 
-                         custom_query: Optional[str] = None) -> List[Dict]:
-        """
-        Fetch news for a specific economic event
-        
-        Args:
-            event_date: Date of event 'YYYY-MM-DD'
-            event_name: Name of event (e.g., 'Non-Farm Payrolls')
-            max_records: Maximum articles to retrieve
-            custom_query: Optional custom search query
-            
-        Returns:
-            List of relevant articles
-        """
-        # Get predefined query or use custom
-        if custom_query:
-            query = custom_query
-        else:
-            # Try to match event name to predefined queries
-            query = None
-            for key, value in self.event_queries.items():
-                if key.lower() in event_name.lower():
-                    query = value
-                    break
-            
-            if not query:
-                # Fallback to event name
-                query = event_name
-        
         print(f"\nFetching news for event: {event_name}")
         
-        articles = self.fetch_news(event_date, query, max_records)
+        date_obj = datetime.strptime(date, '%Y-%m-%d')
         
-        # Enhance with event metadata
-        for article in articles:
-            article['event_name'] = event_name
-            article['event_date'] = event_date
+        # Generate search query
+        query = self._generate_search_query(event_name, date_obj)
+        print(f"  Search query: '{query}'")
+        
+        all_articles = []
+        
+        # Try multiple sources in order
+        sources_tried = []
+        
+        # 1. Try Google News RSS (most reliable, no API key needed)
+        try:
+            print(f"  [1/4] Trying Google News RSS...")
+            articles = self._fetch_google_news_rss(query, date_obj, max_records)
+            if articles:
+                all_articles.extend(articles)
+                sources_tried.append(f"Google RSS ({len(articles)})")
+                print(f"  ✓ Google News RSS: {len(articles)} articles")
+        except Exception as e:
+            print(f"  ✗ Google News RSS failed: {str(e)[:50]}")
+        
+        # 2. Try NewsAPI if key available
+        if self.newsapi_key and len(all_articles) < max_records:
+            try:
+                print(f"  [2/4] Trying NewsAPI...")
+                articles = self._fetch_newsapi(query, date_obj, max_records - len(all_articles))
+                if articles:
+                    all_articles.extend(articles)
+                    sources_tried.append(f"NewsAPI ({len(articles)})")
+                    print(f"  ✓ NewsAPI: {len(articles)} articles")
+            except Exception as e:
+                print(f"  ✗ NewsAPI failed: {str(e)[:50]}")
+        
+        # 3. Try Yahoo Finance RSS
+        if len(all_articles) < max_records:
+            try:
+                print(f"  [3/4] Trying Yahoo Finance RSS...")
+                articles = self._fetch_yahoo_finance_rss(event_name, date_obj, max_records - len(all_articles))
+                if articles:
+                    all_articles.extend(articles)
+                    sources_tried.append(f"Yahoo RSS ({len(articles)})")
+                    print(f"  ✓ Yahoo Finance RSS: {len(articles)} articles")
+            except Exception as e:
+                print(f"  ✗ Yahoo Finance RSS failed: {str(e)[:50]}")
+        
+        # 4. Try Bing News if key available
+        if self.bing_key and len(all_articles) < max_records:
+            try:
+                print(f"  [4/4] Trying Bing News API...")
+                articles = self._fetch_bing_news(query, date_obj, max_records - len(all_articles))
+                if articles:
+                    all_articles.extend(articles)
+                    sources_tried.append(f"Bing ({len(articles)})")
+                    print(f"  ✓ Bing News: {len(articles)} articles")
+            except Exception as e:
+                print(f"  ✗ Bing News failed: {str(e)[:50]}")
+        
+        # Remove duplicates
+        all_articles = self._deduplicate_articles(all_articles)
+        
+        # Sort by relevance/date
+        all_articles = sorted(
+            all_articles,
+            key=lambda x: (x.get('relevance_score', 0), x.get('published_date', '')),
+            reverse=True
+        )[:max_records]
+        
+        print(f"\n  ✓ Total fetched: {len(all_articles)} articles")
+        print(f"  Sources: {', '.join(sources_tried) if sources_tried else 'None'}")
+        
+        return all_articles
+    
+    def _generate_search_query(self, event_name: str, date_obj: datetime) -> str:
+        """Generate optimized search query"""
+        
+        # Event-specific keywords
+        event_keywords = {
+            'non-farm payrolls': ['jobs report', 'employment', 'unemployment', 'NFP'],
+            'cpi': ['inflation', 'consumer prices', 'CPI'],
+            'fomc': ['federal reserve', 'interest rates', 'fed meeting'],
+            'gdp': ['economic growth', 'GDP', 'gross domestic product'],
+            'retail sales': ['consumer spending', 'retail'],
+        }
+        
+        event_lower = event_name.lower()
+        
+        # Find matching keywords
+        keywords = [event_name]
+        for key, terms in event_keywords.items():
+            if key in event_lower:
+                keywords.extend(terms)
+                break
+        
+        # Add date context
+        month_year = date_obj.strftime('%B %Y')
+        keywords.append(month_year)
+        
+        return ' OR '.join(keywords[:3])  # Limit to avoid too long queries
+    
+    def _fetch_google_news_rss(self, query: str, date_obj: datetime, max_records: int) -> List[Dict]:
+        """Fetch from Google News RSS (no API key needed!)"""
+        
+        url = self.rss_feeds['google_news'].format(query=requests.utils.quote(query))
+        
+        response = self.session.get(url, timeout=10)
+        response.raise_for_status()
+        
+        feed = feedparser.parse(response.content)
+        
+        articles = []
+        for entry in feed.entries[:max_records * 2]:  # Get extra for filtering
+            
+            # Parse date
+            pub_date = None
+            if hasattr(entry, 'published_parsed'):
+                pub_date = datetime(*entry.published_parsed[:6])
+            
+            # Check if within date range (±3 days)
+            if pub_date:
+                days_diff = abs((pub_date.date() - date_obj.date()).days)
+                if days_diff > 3:
+                    continue
+            
+            article = {
+                'title': entry.get('title', ''),
+                'content': entry.get('summary', ''),
+                'url': entry.get('link', ''),
+                'published_date': pub_date.isoformat() if pub_date else date_obj.isoformat(),
+                'source': 'Google News RSS',
+                'relevance_score': 0.8
+            }
+            
+            articles.append(article)
+            
+            if len(articles) >= max_records:
+                break
         
         return articles
     
-    def fetch_multiple_events(self, events: List[Dict],
-                             max_records_per_event: int = 5) -> Dict:
-        """
-        Fetch news for multiple events
+    def _fetch_newsapi(self, query: str, date_obj: datetime, max_records: int) -> List[Dict]:
+        """Fetch from NewsAPI (requires API key)"""
         
-        Args:
-            events: List of event dicts with 'date' and 'event' keys
-            max_records_per_event: Articles per event
+        from_date = (date_obj - timedelta(days=1)).strftime('%Y-%m-%d')
+        to_date = (date_obj + timedelta(days=1)).strftime('%Y-%m-%d')
+        
+        url = 'https://newsapi.org/v2/everything'
+        params = {
+            'q': query,
+            'from': from_date,
+            'to': to_date,
+            'language': 'en',
+            'sortBy': 'relevancy',
+            'pageSize': max_records,
+            'apiKey': self.newsapi_key
+        }
+        
+        response = self.session.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        articles = []
+        for item in data.get('articles', []):
+            article = {
+                'title': item.get('title', ''),
+                'content': item.get('description', '') or item.get('content', ''),
+                'url': item.get('url', ''),
+                'published_date': item.get('publishedAt', date_obj.isoformat()),
+                'source': f"NewsAPI - {item.get('source', {}).get('name', 'Unknown')}",
+                'relevance_score': 0.9
+            }
+            articles.append(article)
+        
+        return articles
+    
+    def _fetch_yahoo_finance_rss(self, event_name: str, date_obj: datetime, max_records: int) -> List[Dict]:
+        """Fetch from Yahoo Finance RSS"""
+        
+        url = self.rss_feeds['yahoo_finance']
+        
+        response = self.session.get(url, timeout=10)
+        response.raise_for_status()
+        
+        feed = feedparser.parse(response.content)
+        
+        articles = []
+        event_keywords = event_name.lower().split()
+        
+        for entry in feed.entries[:max_records * 3]:
             
-        Returns:
-            Dictionary with event data and news
-        """
-        print(f"\nFetching news for {len(events)} events")
-        
-        results = []
-        
-        for i, event in enumerate(events, 1):
-            event_date = event.get('date')
-            event_name = event.get('event')
+            # Filter by keyword relevance
+            title = entry.get('title', '').lower()
+            summary = entry.get('summary', '').lower()
             
-            if not event_date or not event_name:
-                print(f"  Skipping invalid event: {event}")
+            relevance = sum(1 for kw in event_keywords if kw in title or kw in summary)
+            if relevance == 0:
                 continue
             
-            print(f"\n[{i}/{len(events)}] {event_name} on {event_date}")
+            pub_date = None
+            if hasattr(entry, 'published_parsed'):
+                pub_date = datetime(*entry.published_parsed[:6])
             
-            articles = self.fetch_event_news(
-                event_date, 
-                event_name, 
-                max_records_per_event
-            )
-            
-            results.append({
-                'event_date': event_date,
-                'event_name': event_name,
-                'articles_count': len(articles),
-                'articles': articles
-            })
-        
-        return {
-            'total_events': len(events),
-            'events_with_news': len([r for r in results if r['articles_count'] > 0]),
-            'total_articles': sum(r['articles_count'] for r in results),
-            'events': results
-        }
-    
-    def get_trending_topics(self, date: str, num_queries: int = 5) -> List[Dict]:
-        """
-        Fetch news for multiple trending financial topics on a date
-        
-        Args:
-            date: Date 'YYYY-MM-DD'
-            num_queries: Number of different topics to query
-            
-        Returns:
-            List of results for different topics
-        """
-        trending_queries = [
-            'stock market trading S&P500 Dow',
-            'Federal Reserve interest rates FOMC',
-            'inflation CPI prices economy',
-            'gold silver commodities precious metals',
-            'dollar currency forex exchange rates',
-            'oil energy crude prices',
-            'Bitcoin cryptocurrency digital assets',
-            'employment jobs labor market'
-        ]
-        
-        results = []
-        
-        for query in trending_queries[:num_queries]:
-            articles = self.fetch_news(date, query, max_records=3)
-            if articles:
-                results.append({
-                    'topic': query,
-                    'article_count': len(articles),
-                    'articles': articles
-                })
-        
-        return results
-    
-    def save_to_json(self, data: Dict, filename: str):
-        """Save news data to JSON file"""
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        print(f"\n✓ Saved to {filename}")
-    
-    def save_to_csv(self, articles: List[Dict], filename: str):
-        """Save articles to CSV file"""
-        if not articles:
-            print("No articles to save")
-            return
-        
-        df = pd.DataFrame(articles)
-        df.to_csv(filename, index=False, encoding='utf-8')
-        print(f"✓ Saved to {filename}")
-    
-    def get_news_summary(self, articles: List[Dict]) -> Dict:
-        """Generate summary statistics for news articles"""
-        if not articles:
-            return {
-                'total_articles': 0,
-                'unique_sources': 0,
-                'date_range': None
+            article = {
+                'title': entry.get('title', ''),
+                'content': entry.get('summary', ''),
+                'url': entry.get('link', ''),
+                'published_date': pub_date.isoformat() if pub_date else date_obj.isoformat(),
+                'source': 'Yahoo Finance RSS',
+                'relevance_score': 0.7 + (relevance * 0.1)
             }
+            
+            articles.append(article)
+            
+            if len(articles) >= max_records:
+                break
         
-        sources = [a.get('source', 'Unknown') for a in articles]
-        dates = [a.get('date', '') for a in articles if a.get('date')]
+        return articles
+    
+    def _fetch_bing_news(self, query: str, date_obj: datetime, max_records: int) -> List[Dict]:
+        """Fetch from Bing News API (requires API key)"""
         
-        return {
-            'total_articles': len(articles),
-            'unique_sources': len(set(sources)),
-            'top_sources': pd.Series(sources).value_counts().head(5).to_dict(),
-            'date_range': {
-                'start': min(dates) if dates else None,
-                'end': max(dates) if dates else None
-            },
-            'sample_titles': [a.get('title', '') for a in articles[:5]]
+        url = 'https://api.bing.microsoft.com/v7.0/news/search'
+        headers = {'Ocp-Apim-Subscription-Key': self.bing_key}
+        params = {
+            'q': query,
+            'count': max_records,
+            'mkt': 'en-US',
+            'freshness': 'Week'
         }
+        
+        response = self.session.get(url, headers=headers, params=params, timeout=10)
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        articles = []
+        for item in data.get('value', []):
+            article = {
+                'title': item.get('name', ''),
+                'content': item.get('description', ''),
+                'url': item.get('url', ''),
+                'published_date': item.get('datePublished', date_obj.isoformat()),
+                'source': f"Bing - {item.get('provider', [{}])[0].get('name', 'Unknown')}",
+                'relevance_score': 0.85
+            }
+            articles.append(article)
+        
+        return articles
+    
+    def _deduplicate_articles(self, articles: List[Dict]) -> List[Dict]:
+        """Remove duplicate articles based on title similarity"""
+        
+        unique = []
+        seen_titles = set()
+        
+        for article in articles:
+            title = article.get('title', '').lower().strip()
+            
+            # Simple deduplication based on title
+            title_key = ''.join(c for c in title if c.isalnum())[:50]
+            
+            if title_key not in seen_titles:
+                seen_titles.add(title_key)
+                unique.append(article)
+        
+        return unique
+    
+    def fetch_news(self, date: str, max_records: int = 10) -> List[Dict]:
+        """Fetch general financial news for a date"""
+        
+        date_obj = datetime.strptime(date, '%Y-%m-%d')
+        
+        # Generic financial news query
+        query = f"markets finance economy stocks {date_obj.strftime('%B %Y')}"
+        
+        return self.fetch_event_news(date, query, max_records)
+    
+    def get_affected_symbols(self, event_name: str, text: str) -> List[str]:
+        """Extract financial symbols from event and text"""
+        
+        symbols = set()
+        
+        # Event-specific symbol mappings
+        event_symbols = {
+            'non-farm payrolls': ['DX-Y.NYB', 'GC=F', '^GSPC', 'EURUSD=X', '^TNX'],
+            'cpi': ['GC=F', 'DX-Y.NYB', '^GSPC', 'TLT', 'EURUSD=X'],
+            'fomc': ['^TNX', 'DX-Y.NYB', '^GSPC', 'GC=F', 'EURUSD=X'],
+            'gdp': ['^GSPC', 'DX-Y.NYB', '^TNX', 'EURUSD=X'],
+            'retail sales': ['^GSPC', 'EURUSD=X', 'GC=F'],
+        }
+        
+        event_lower = event_name.lower()
+        for key, symbol_list in event_symbols.items():
+            if key in event_lower:
+                symbols.update(symbol_list)
+                break
+        
+        # Text-based extraction
+        text_upper = text.upper()
+        
+        symbol_keywords = {
+            'GOLD': 'GC=F',
+            'DOLLAR': 'DX-Y.NYB',
+            'EUR': 'EURUSD=X',
+            'S&P': '^GSPC',
+            'TREASURY': '^TNX',
+            'NASDAQ': '^IXIC',
+        }
+        
+        for keyword, symbol in symbol_keywords.items():
+            if keyword in text_upper:
+                symbols.add(symbol)
+        
+        return list(symbols)
+
+
+class NewsFetcher(EnhancedNewsFetcher):
+    """Backward compatibility alias"""
+    pass
 
 
 if __name__ == "__main__":
-    print("="*80)
-    print("NEWS FETCHER - GDELT API")
-    print("="*80)
+    fetcher = EnhancedNewsFetcher()
     
-    fetcher = NewsFetcher()
-    
-    # Test 1: Single date news fetch
-    print("\n" + "="*80)
-    print("TEST 1: Fetch news for a specific date")
+    print("="*80)
+    print("ENHANCED NEWS FETCHER TEST")
     print("="*80)
     
-    test_date = '2024-11-01'
-    articles = fetcher.fetch_news(
-        date=test_date,
-        query='economy finance market',
-        max_records=10
-    )
+    # Test 1: Non-Farm Payrolls
+    print("\nTest 1: Non-Farm Payrolls (2024-11-01)")
+    print("-" * 80)
+    
+    articles = fetcher.fetch_event_news('2024-11-01', 'Non-Farm Payrolls', max_records=5)
+    
+    print(f"\n✓ Fetched {len(articles)} articles\n")
+    
+    for i, article in enumerate(articles[:3], 1):
+        print(f"{i}. {article['title']}")
+        print(f"   Source: {article['source']}")
+        print(f"   URL: {article['url'][:60]}...")
+        print()
+    
+    # Test 2: Symbol extraction
+    print("\nTest 2: Symbol Extraction")
+    print("-" * 80)
     
     if articles:
-        print(f"\nRetrieved {len(articles)} articles:")
-        for i, article in enumerate(articles[:5], 1):
-            print(f"\n{i}. {article['title']}")
-            print(f"   Source: {article['source']}")
-            print(f"   URL: {article['url'][:60]}...")
-    
-    # Test 2: Event-specific news
-    print("\n" + "="*80)
-    print("TEST 2: Fetch news for specific economic events")
-    print("="*80)
-    
-    test_events = [
-        {'date': '2024-11-01', 'event': 'Non-Farm Payrolls'},
-        {'date': '2024-10-10', 'event': 'Consumer Price Index'},
-        {'date': '2024-09-18', 'event': 'FOMC Decision'}
-    ]
-    
-    event_results = fetcher.fetch_multiple_events(test_events, max_records_per_event=3)
-    
-    print(f"\nEvents processed: {event_results['events_with_news']}/{event_results['total_events']}")
-    print(f"Total articles: {event_results['total_articles']}")
-    
-    for event in event_results['events']:
-        if event['articles_count'] > 0:
-            print(f"\n{event['event_name']} ({event['event_date']}): {event['articles_count']} articles")
-            for article in event['articles'][:2]:
-                print(f"  • {article['title']}")
-    
-    # Test 3: Date range fetch
-    print("\n" + "="*80)
-    print("TEST 3: Fetch news for date range")
-    print("="*80)
-    
-    range_results = fetcher.fetch_news_range(
-        start_date='2024-11-01',
-        end_date='2024-11-05',
-        query='gold prices inflation',
-        max_records_per_day=3
-    )
-    
-    print(f"\nDates with news: {len(range_results)}")
-    for date, articles in range_results.items():
-        print(f"  {date}: {len(articles)} articles")
-    
-    # Test 4: Trending topics
-    print("\n" + "="*80)
-    print("TEST 4: Get trending topics for a date")
-    print("="*80)
-    
-    trending = fetcher.get_trending_topics('2024-11-01', num_queries=3)
-    
-    for topic_data in trending:
-        print(f"\nTopic: {topic_data['topic']}")
-        print(f"Articles: {topic_data['article_count']}")
-        for article in topic_data['articles'][:2]:
-            print(f"  • {article['title']}")
-    
-    # Save results
-    print("\n" + "="*80)
-    print("SAVING RESULTS")
-    print("="*80)
-    
-    # Save single date results
-    fetcher.save_to_json(
-        {'date': test_date, 'articles': articles},
-        'news_single_date.json'
-    )
-    
-    # Save event results
-    fetcher.save_to_json(event_results, 'news_events.json')
-    
-    # Save to CSV
-    all_articles = []
-    for event in event_results['events']:
-        all_articles.extend(event['articles'])
-    
-    if all_articles:
-        fetcher.save_to_csv(all_articles, 'news_articles.csv')
-    
-    # Generate summary
-    print("\n" + "="*80)
-    print("NEWS SUMMARY")
-    print("="*80)
-    
-    summary = fetcher.get_news_summary(all_articles)
-    print(f"\nTotal Articles: {summary['total_articles']}")
-    print(f"Unique Sources: {summary['unique_sources']}")
-    print(f"\nTop Sources:")
-    for source, count in list(summary.get('top_sources', {}).items())[:5]:
-        print(f"  {source}: {count}")
+        text = ' '.join([a['title'] + ' ' + a['content'] for a in articles])
+        symbols = fetcher.get_affected_symbols('Non-Farm Payrolls', text)
+        print(f"Extracted symbols: {', '.join(symbols)}")
     
     print("\n" + "="*80)
-    print("✓ News fetching complete")
+    print("✓ TEST COMPLETE")
     print("="*80)
