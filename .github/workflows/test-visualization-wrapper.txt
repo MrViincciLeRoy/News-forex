@@ -1,0 +1,99 @@
+name: Test Visualization Wrapper
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'visualization_wrapper.py'
+      - 'hf_method*.py'
+      - 'economic_calendar_generator.py'
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test-visualizations:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        pip install pandas numpy matplotlib seaborn
+        pip install -r requirements.txt
+    
+    - name: Test visualization wrapper
+      run: |
+        python visualization_wrapper.py
+    
+    - name: Generate HF Method 1 visualizations
+      run: |
+        python -c "
+        from visualization_wrapper import VisualizationWrapper
+        import json
+        
+        viz = VisualizationWrapper('hf1_visualizations')
+        
+        # Check if results file exists
+        import os
+        if os.path.exists('hf_sentiment_results.json'):
+            viz.visualize_from_file('hf_sentiment_results.json', 'hf1_sentiment')
+        "
+    
+    - name: Generate HF Method 3 visualizations
+      run: |
+        python -c "
+        from visualization_wrapper import VisualizationWrapper
+        import json
+        
+        viz = VisualizationWrapper('hf3_visualizations')
+        
+        import os
+        if os.path.exists('hf_forecast_results.json'):
+            viz.visualize_from_file('hf_forecast_results.json', 'hf3_forecast')
+        "
+    
+    - name: Generate Calendar visualizations
+      run: |
+        python -c "
+        from visualization_wrapper import VisualizationWrapper
+        import json
+        
+        viz = VisualizationWrapper('calendar_visualizations')
+        
+        import os
+        if os.path.exists('gold_calendar_2024_2025.json'):
+            viz.visualize_from_file('gold_calendar_2024_2025.json', 'economic_calendar')
+        "
+    
+    - name: Upload visualization artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: visualization-outputs
+        path: |
+          test_visualizations/
+          hf1_visualizations/
+          hf3_visualizations/
+          calendar_visualizations/
+        retention-days: 30
+    
+    - name: Display summary
+      if: success()
+      run: |
+        echo "Visualization generation complete"
+        echo "Test visualizations:"
+        ls -lh test_visualizations/ || echo "No test visualizations"
+        echo ""
+        echo "HF visualizations:"
+        ls -lh hf*_visualizations/ || echo "No HF visualizations"
+        echo ""
+        echo "Calendar visualizations:"
+        ls -lh calendar_visualizations/ || echo "No calendar visualizations"
