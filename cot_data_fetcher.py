@@ -61,17 +61,17 @@ class COTDataFetcher:
     
     def fetch_cot_data(self, year, report_type='financial'):
         """
-        Fetch COT data from CFTC using correct URL patterns
-        CFTC uses different formats: dea_fut_xls_YYYY.zip for recent years
+        Fetch COT data from CFTC with verbose logging
         """
+        print(f"\n[DEBUG] Attempting to fetch {report_type} data for year {year}")
+        
         filenames = []
         
         if report_type == 'financial':
-            # Try multiple URL patterns
             filenames = [
-                f"dea_fut_xls_{year}.zip",  # New format (2017+)
-                f"deacot{year}.zip",         # Old format
-                f"annual.txt"                 # Text fallback
+                f"dea_fut_xls_{year}.zip",
+                f"deacot{year}.zip",
+                f"annual.txt"
             ]
         else:
             filenames = [
@@ -80,35 +80,72 @@ class COTDataFetcher:
                 f"annual.txt"
             ]
         
-        for filename in filenames:
+        for idx, filename in enumerate(filenames, 1):
             url = f"{self.base_url}/{filename}"
+            print(f"[DEBUG] Attempt {idx}/{len(filenames)}: {url}")
+            
             try:
+                print(f"[DEBUG] Sending GET request...")
                 response = requests.get(url, timeout=30)
+                print(f"[DEBUG] Response status: {response.status_code}")
+                print(f"[DEBUG] Response headers: {dict(response.headers)}")
+                print(f"[DEBUG] Content-Type: {response.headers.get('content-type', 'unknown')}")
+                print(f"[DEBUG] Content-Length: {len(response.content)} bytes")
+                
                 if response.status_code == 200:
                     try:
                         # Handle ZIP files
                         if filename.endswith('.zip'):
-                            with zipfile.ZipFile(io.BytesIO(response.content)) as z:
-                                # Look for Excel or text files
-                                for file_info in z.namelist():
-                                    if file_info.endswith(('.xls', '.xlsx', '.txt')):
-                                        with z.open(file_info) as f:
-                                            if file_info.endswith('.txt'):
-                                                df = pd.read_csv(f)
-                                            else:
-                                                df = pd.read_excel(f)
+                            print(f"[DEBUG] Processing ZIP file...")
+                            try:
+                                with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+                                    print(f"[DEBUG] ZIP contents: {z.namelist()}")
+                                    
+                                    for file_info in z.namelist():
+                                        print(f"[DEBUG] Checking file: {file_info}")
+                                        
+                                        if file_info.endswith(('.xls', '.xlsx', '.txt')):
+                                            print(f"[DEBUG] Extracting {file_info}...")
                                             
-                                            # Verify we have the right columns
-                                            if 'Report_Date_as_YYYY-MM-DD' in df.columns:
-                                                df['Report_Date_as_YYYY-MM-DD'] = pd.to_datetime(
-                                                    df['Report_Date_as_YYYY-MM-DD']
-                                                )
-                                                print(f"✓ Loaded {len(df)} records for {year} from {filename}")
-                                                return df
+                                            with z.open(file_info) as f:
+                                                file_content = f.read()
+                                                print(f"[DEBUG] Extracted file size: {len(file_content)} bytes")
+                                                
+                                                if file_info.endswith('.txt'):
+                                                    print(f"[DEBUG] Parsing as CSV...")
+                                                    df = pd.read_csv(io.BytesIO(file_content))
+                                                else:
+                                                    print(f"[DEBUG] Parsing as Excel...")
+                                                    df = pd.read_excel(io.BytesIO(file_content))
+                                                
+                                                print(f"[DEBUG] DataFrame shape: {df.shape}")
+                                                print(f"[DEBUG] DataFrame columns: {list(df.columns)[:10]}")
+                                                
+                                                # Check for required column
+                                                if 'Report_Date_as_YYYY-MM-DD' in df.columns:
+                                                    print(f"[DEBUG] Found Report_Date column!")
+                                                    df['Report_Date_as_YYYY-MM-DD'] = pd.to_datetime(
+                                                        df['Report_Date_as_YYYY-MM-DD']
+                                                    )
+                                                    print(f"[DEBUG] Date range: {df['Report_Date_as_YYYY-MM-DD'].min()} to {df['Report_Date_as_YYYY-MM-DD'].max()}")
+                                                    print(f"✓ Successfully loaded {len(df)} records for {year} from {filename}")
+                                                    return df
+                                                else:
+                                                    print(f"[DEBUG] Column 'Report_Date_as_YYYY-MM-DD' not found")
+                                                    print(f"[DEBUG] Available columns: {list(df.columns)}")
+                            
+                            except zipfile.BadZipFile as e:
+                                print(f"[ERROR] Bad ZIP file: {e}")
+                                print(f"[DEBUG] First 100 bytes of response: {response.content[:100]}")
+                                continue
                         
                         # Handle direct text files
                         elif filename.endswith('.txt'):
+                            print(f"[DEBUG] Processing text file...")
                             df = pd.read_csv(io.StringIO(response.text))
+                            print(f"[DEBUG] DataFrame shape: {df.shape}")
+                            print(f"[DEBUG] DataFrame columns: {list(df.columns)[:10]}")
+                            
                             if 'Report_Date_as_YYYY-MM-DD' in df.columns:
                                 df['Report_Date_as_YYYY-MM-DD'] = pd.to_datetime(
                                     df['Report_Date_as_YYYY-MM-DD']
@@ -117,15 +154,28 @@ class COTDataFetcher:
                                 if not df_year.empty:
                                     print(f"✓ Loaded {len(df_year)} records for {year}")
                                     return df_year
+                                else:
+                                    print(f"[DEBUG] No data for year {year} in file")
                     
                     except Exception as parse_error:
-                        print(f"  Parse error for {filename}: {parse_error}")
+                        print(f"[ERROR] Parse error: {type(parse_error).__name__}: {parse_error}")
+                        import traceback
+                        traceback.print_exc()
                         continue
+                
+                else:
+                    print(f"[DEBUG] Skipping due to non-200 status")
             
+            except requests.exceptions.RequestException as e:
+                print(f"[ERROR] Request failed: {type(e).__name__}: {e}")
+                continue
             except Exception as e:
+                print(f"[ERROR] Unexpected error: {type(e).__name__}: {e}")
+                import traceback
+                traceback.print_exc()
                 continue
         
-        print(f"✗ Could not fetch {year} data from CFTC")
+        print(f"[ERROR] Could not fetch {year} data from any source")
         return None
     
     def get_symbol_data(self, symbol, start_date, end_date=None, report_type='financial'):
@@ -168,30 +218,44 @@ class COTDataFetcher:
         return combined
     
     def get_positioning_for_date(self, symbol, target_date):
+        print(f"\n[INFO] Getting positioning for {symbol} on {target_date}")
+        
         report_tuesday, release_friday = self.get_report_date_for_date(target_date)
+        print(f"[INFO] Report Tuesday: {report_tuesday.strftime('%Y-%m-%d')}")
+        print(f"[INFO] Release Friday: {release_friday.strftime('%Y-%m-%d')}")
         
         year = report_tuesday.year
         df = self.fetch_cot_data(year)
         
         if df is None:
+            print(f"[ERROR] No data available for year {year}")
             return None
         
         code = self.cftc_codes.get(symbol.upper())
         if not code:
+            print(f"[ERROR] No CFTC code found for {symbol}")
             return None
         
+        print(f"[DEBUG] Filtering for CFTC code: {code}")
         symbol_data = df[df['CFTC_Contract_Market_Code'] == code]
+        print(f"[DEBUG] Found {len(symbol_data)} records for {symbol}")
+        
+        if len(symbol_data) > 0:
+            print(f"[DEBUG] Date range in data: {symbol_data['Report_Date_as_YYYY-MM-DD'].min()} to {symbol_data['Report_Date_as_YYYY-MM-DD'].max()}")
         
         report_data = symbol_data[
             symbol_data['Report_Date_as_YYYY-MM-DD'] == report_tuesday
         ]
         
         if report_data.empty:
+            print(f"[DEBUG] No exact match for {report_tuesday}, finding closest...")
             closest = symbol_data.iloc[(symbol_data['Report_Date_as_YYYY-MM-DD'] - report_tuesday).abs().argsort()[:1]]
             if not closest.empty:
                 report_data = closest
+                print(f"[DEBUG] Using closest date: {closest['Report_Date_as_YYYY-MM-DD'].iloc[0]}")
         
         if report_data.empty:
+            print(f"[ERROR] No data found for {symbol} near {report_tuesday}")
             return None
         
         row = report_data.iloc[0]
@@ -286,7 +350,7 @@ if __name__ == "__main__":
     fetcher = COTDataFetcher()
     
     print("="*80)
-    print("COT DATA FETCHER - Testing with Corrected CFTC URLs")
+    print("COT DATA FETCHER - VERBOSE DEBUG MODE")
     print("="*80)
     
     symbols = ['EUR', 'GOLD', 'CRUDE_OIL']
@@ -300,50 +364,14 @@ if __name__ == "__main__":
         positioning = fetcher.get_positioning_for_date(symbol, test_date)
         
         if positioning:
-            print(f"\nReport Date: {positioning['report_date']}")
+            print(f"\n✓ SUCCESS!")
+            print(f"Report Date: {positioning['report_date']}")
             print(f"Release Date: {positioning['release_date']}")
             print(f"Sentiment: {positioning['sentiment']}")
             print(f"Open Interest: {positioning['open_interest']:,}")
-            
-            print("\nPositioning:")
-            print(f"  Dealers (Banks):")
-            print(f"    Long: {positioning['dealer']['long']:,}")
-            print(f"    Short: {positioning['dealer']['short']:,}")
-            print(f"    Net: {positioning['dealer']['net']:,}")
-            
-            print(f"\n  Asset Managers (Institutions):")
-            print(f"    Long: {positioning['asset_manager']['long']:,}")
-            print(f"    Short: {positioning['asset_manager']['short']:,}")
-            print(f"    Net: {positioning['asset_manager']['net']:,}")
-            
-            print(f"\n  Leveraged Funds (Hedge Funds):")
-            print(f"    Long: {positioning['leveraged']['long']:,}")
-            print(f"    Short: {positioning['leveraged']['short']:,}")
-            print(f"    Net: {positioning['leveraged']['net']:,}")
-            
-            if 'analysis' in positioning:
-                print("\nAnalysis:")
-                print(f"  Dealers: {positioning['analysis']['dealer_net_pct']}% of OI")
-                print(f"  Asset Mgrs: {positioning['analysis']['asset_mgr_net_pct']}% of OI")
-                print(f"  Hedge Funds: {positioning['analysis']['leveraged_net_pct']}% of OI")
-                print(f"  Smart Money: {positioning['analysis']['smart_money_net_pct']}% of OI")
         else:
-            print(f"No data available for {symbol}")
-    
-    print(f"\n{'='*80}")
-    print("Comparing EUR positioning (2 weeks)")
-    print('='*80)
-    
-    comparison = fetcher.compare_positioning('EUR', '2024-10-15', '2024-10-29')
-    if comparison:
-        print(f"\nFrom: {comparison['from_date']}")
-        print(f"To: {comparison['to_date']}")
-        print(f"\nChanges in Net Positioning:")
-        print(f"  Dealers: {comparison['dealer_net_change']:+,}")
-        print(f"  Asset Managers: {comparison['asset_mgr_net_change']:+,}")
-        print(f"  Hedge Funds: {comparison['leveraged_net_change']:+,}")
-        print(f"\nSentiment: {comparison['sentiment_change']}")
+            print(f"\n✗ FAILED - No data available for {symbol}")
     
     print(f"\n{'='*80}")
     print("Test complete")
-    print('='*80)
+    print('='*80) 
