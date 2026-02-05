@@ -1,232 +1,305 @@
 """
-HF Analytics Method 1: Financial Sentiment Analyzer
-Uses FinBERT to analyze sentiment of financial news and market commentary
-Models: ProsusAI/finbert, yiyanghkust/finbert-tone
-Enhances: news_impact_analyzer.py, cot_news_integration.py
+HF Method 1: Sentiment Analysis - CORRECTED VERSION
+Uses FinBERT for financial sentiment analysis with clean output
 """
 
+import torch
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from transformers import logging as transformers_logging
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
-from typing import List, Dict, Optional
-import json
-import os
+from datetime import datetime
+import warnings
+
+# Suppress warnings globally
+transformers_logging.set_verbosity_error()
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=UserWarning)
 
 
 class HFSentimentAnalyzer:
     """
-    Financial Sentiment Analysis using Hugging Face FinBERT
-    Analyzes news articles, headlines, and market commentary
+    Financial sentiment analyzer using FinBERT
+    Clean loading without warnings
     """
     
-    def __init__(self, model_name: str = "ProsusAI/finbert"):
-        """
-        Initialize sentiment analyzer
-        
-        Args:
-            model_name: Hugging Face model identifier
-                       Options: "ProsusAI/finbert", "yiyanghkust/finbert-tone"
-        """
-        self.model_name = model_name
+    def __init__(self):
         self.model = None
         self.tokenizer = None
         self.device = None
-        self.sentiment_cache = {}
-        
-        print(f"Initializing HF Sentiment Analyzer: {model_name}")
+        self.labels = ['negative', 'neutral', 'positive']
     
     def load_model(self):
-        """Load FinBERT model from Hugging Face"""
+        """Load FinBERT model quietly (no warnings)"""
+        
+        # Suppress logging during load
+        old_level = transformers_logging.get_verbosity()
+        transformers_logging.set_verbosity_error()
+        
         try:
-            from transformers import AutoTokenizer, AutoModelForSequenceClassification
-            import torch
+            print("Loading FinBERT...")
             
-            print(f"Loading model: {self.model_name}")
-            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-            self.model = AutoModelForSequenceClassification.from_pretrained(self.model_name)
+            # Load model
+            self.model = AutoModelForSequenceClassification.from_pretrained(
+                'ProsusAI/finbert',
+                num_labels=3
+            )
+            
+            # Load tokenizer
+            self.tokenizer = AutoTokenizer.from_pretrained('ProsusAI/finbert')
+            
+            # Set device
             self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             self.model.to(self.device)
             self.model.eval()
             
-            print(f"✓ Model loaded successfully on {self.device}")
-            return True
+            print("✓ Text model loaded")
             
-        except ImportError:
-            print("⚠️  transformers/torch not installed")
-            print("   Install: pip install transformers torch")
-            return False
-        except Exception as e:
-            print(f"✗ Error loading model: {e}")
-            return False
+        finally:
+            # Restore logging level
+            transformers_logging.set_verbosity(old_level)
     
-    def analyze_text(self, text: str) -> Dict:
-        """Analyze sentiment of text"""
-        if not self.model:
-            return self._fallback_sentiment(text)
+    def analyze_text(self, text):
+        """
+        Analyze sentiment of a single text
         
-        if text in self.sentiment_cache:
-            return self.sentiment_cache[text]
-        
-        try:
-            import torch
+        Args:
+            text: Text to analyze
             
+        Returns:
+            Dictionary with sentiment scores
+        """
+        if self.model is None:
+            self.load_model()
+        
+        # Tokenize
+        inputs = self.tokenizer(
+            text,
+            return_tensors='pt',
+            truncation=True,
+            max_length=512,
+            padding=True
+        ).to(self.device)
+        
+        # Get predictions
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+            logits = outputs.logits
+            probs = torch.softmax(logits, dim=1)[0]
+        
+        # Convert to dict
+        sentiment_scores = {
+            label: float(prob) 
+            for label, prob in zip(self.labels, probs)
+        }
+        
+        # Determine overall sentiment
+        max_label = max(sentiment_scores, key=sentiment_scores.get)
+        
+        return {
+            'sentiment': max_label,
+            'confidence': sentiment_scores[max_label],
+            'scores': sentiment_scores
+        }
+    
+    def analyze_news_articles(self, articles):
+        """
+        Analyze sentiment of multiple news articles
+        
+        Args:
+            articles: List of article dictionaries with 'title' and 'content'
+            
+        Returns:
+            List of sentiment analyses
+        """
+        if self.model is None:
+            self.load_model()
+        
+        results = []
+        
+        for article in articles:
+            # Combine title and content
+            text = f"{article.get('title', '')} {article.get('content', '')}"
+            
+            # Analyze
+            sentiment = self.analyze_text(text)
+            
+            results.append({
+                'title': article.get('title', ''),
+                'date': article.get('date', ''),
+                'sentiment': sentiment['sentiment'],
+                'confidence': sentiment['confidence'],
+                'scores': sentiment['scores']
+            })
+        
+        return results
+    
+    def aggregate_sentiment(self, sentiment_results):
+        """
+        Aggregate sentiment from multiple analyses
+        
+        Args:
+            sentiment_results: List of sentiment analysis results
+            
+        Returns:
+            Dictionary with aggregated sentiment
+        """
+        if not sentiment_results:
+            return {
+                'overall_sentiment': 'neutral',
+                'confidence': 0.0,
+                'positive_count': 0,
+                'negative_count': 0,
+                'neutral_count': 0,
+                'total_articles': 0
+            }
+        
+        # Count sentiments
+        positive_count = sum(1 for r in sentiment_results if r['sentiment'] == 'positive')
+        negative_count = sum(1 for r in sentiment_results if r['sentiment'] == 'negative')
+        neutral_count = sum(1 for r in sentiment_results if r['sentiment'] == 'neutral')
+        
+        # Calculate average confidence
+        avg_confidence = np.mean([r['confidence'] for r in sentiment_results])
+        
+        # Determine overall sentiment
+        if positive_count > negative_count and positive_count > neutral_count:
+            overall = 'positive'
+        elif negative_count > positive_count and negative_count > neutral_count:
+            overall = 'negative'
+        else:
+            overall = 'neutral'
+        
+        # Calculate weighted score
+        total_positive = sum(r['scores']['positive'] for r in sentiment_results)
+        total_negative = sum(r['scores']['negative'] for r in sentiment_results)
+        total_neutral = sum(r['scores']['neutral'] for r in sentiment_results)
+        
+        total_score = total_positive + total_negative + total_neutral
+        
+        return {
+            'overall_sentiment': overall,
+            'confidence': float(avg_confidence),
+            'positive_count': positive_count,
+            'negative_count': negative_count,
+            'neutral_count': neutral_count,
+            'total_articles': len(sentiment_results),
+            'positive_ratio': positive_count / len(sentiment_results),
+            'negative_ratio': negative_count / len(sentiment_results),
+            'weighted_scores': {
+                'positive': float(total_positive / total_score) if total_score > 0 else 0,
+                'negative': float(total_negative / total_score) if total_score > 0 else 0,
+                'neutral': float(total_neutral / total_score) if total_score > 0 else 0
+            }
+        }
+    
+    def batch_analyze(self, texts, batch_size=8):
+        """
+        Analyze multiple texts in batches for efficiency
+        
+        Args:
+            texts: List of texts
+            batch_size: Batch size for processing
+            
+        Returns:
+            List of sentiment results
+        """
+        if self.model is None:
+            self.load_model()
+        
+        results = []
+        
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i+batch_size]
+            
+            # Tokenize batch
             inputs = self.tokenizer(
-                text, 
-                return_tensors="pt", 
-                truncation=True, 
+                batch,
+                return_tensors='pt',
+                truncation=True,
                 max_length=512,
                 padding=True
             ).to(self.device)
             
+            # Get predictions
             with torch.no_grad():
                 outputs = self.model(**inputs)
-                predictions = torch.nn.functional.softmax(outputs.logits, dim=-1)
+                logits = outputs.logits
+                probs = torch.softmax(logits, dim=1)
             
-            scores = predictions[0].cpu().numpy()
-            labels = ['positive', 'negative', 'neutral']
-            sentiment_scores = {label: float(score) for label, score in zip(labels, scores)}
-            
-            max_label = max(sentiment_scores, key=sentiment_scores.get)
-            
-            result = {
-                'text': text[:100] + '...' if len(text) > 100 else text,
-                'sentiment': max_label,
-                'confidence': round(sentiment_scores[max_label], 4),
-                'scores': {k: round(v, 4) for k, v in sentiment_scores.items()},
-                'bullish_score': round(sentiment_scores.get('positive', 0), 4),
-                'bearish_score': round(sentiment_scores.get('negative', 0), 4),
-                'neutral_score': round(sentiment_scores.get('neutral', 0), 4),
-                'method': 'finbert'
-            }
-            
-            self.sentiment_cache[text] = result
-            return result
-            
-        except Exception as e:
-            print(f"Error: {e}")
-            return self._fallback_sentiment(text)
-    
-    def _fallback_sentiment(self, text: str) -> Dict:
-        """Fallback keyword-based sentiment"""
-        text_lower = text.lower()
+            # Process results
+            for j, prob in enumerate(probs):
+                sentiment_scores = {
+                    label: float(p) 
+                    for label, p in zip(self.labels, prob)
+                }
+                
+                max_label = max(sentiment_scores, key=sentiment_scores.get)
+                
+                results.append({
+                    'text': batch[j],
+                    'sentiment': max_label,
+                    'confidence': sentiment_scores[max_label],
+                    'scores': sentiment_scores
+                })
         
-        bullish_words = ['gain', 'rise', 'up', 'growth', 'strong', 'beat', 'exceed', 
-                         'positive', 'surge', 'rally', 'boost', 'improve', 'recovery']
-        bearish_words = ['fall', 'drop', 'down', 'weak', 'miss', 'decline', 'negative',
-                         'plunge', 'crash', 'loss', 'concern', 'risk', 'fear']
-        
-        bullish_count = sum(1 for word in bullish_words if word in text_lower)
-        bearish_count = sum(1 for word in bearish_words if word in text_lower)
-        
-        total = bullish_count + bearish_count
-        if total == 0:
-            return {
-                'text': text[:100] + '...' if len(text) > 100 else text,
-                'sentiment': 'neutral',
-                'confidence': 0.5,
-                'scores': {'positive': 0.33, 'negative': 0.33, 'neutral': 0.34},
-                'bullish_score': 0.33,
-                'bearish_score': 0.33,
-                'neutral_score': 0.34,
-                'method': 'fallback'
-            }
-        
-        bullish_score = bullish_count / total
-        bearish_score = bearish_count / total
-        
-        sentiment = 'positive' if bullish_score > bearish_score else ('negative' if bearish_score > bullish_score else 'neutral')
-        
-        return {
-            'text': text[:100] + '...' if len(text) > 100 else text,
-            'sentiment': sentiment,
-            'confidence': round(max(bullish_score, bearish_score), 4),
-            'scores': {
-                'positive': round(bullish_score, 4),
-                'negative': round(bearish_score, 4),
-                'neutral': round(1 - bullish_score - bearish_score, 4)
-            },
-            'bullish_score': round(bullish_score, 4),
-            'bearish_score': round(bearish_score, 4),
-            'neutral_score': round(1 - bullish_score - bearish_score, 4),
-            'method': 'fallback'
-        }
-    
-    def analyze_batch(self, texts: List[str]) -> List[Dict]:
-        """Analyze multiple texts"""
-        return [self.analyze_text(text) for text in texts]
-    
-    def analyze_news_articles(self, articles: List[Dict]) -> List[Dict]:
-        """Analyze news articles with sentiment"""
-        enhanced = []
-        for article in articles:
-            title = article.get('title', '')
-            sentiment = self.analyze_text(title)
-            
-            enhanced_article = article.copy()
-            enhanced_article['sentiment_analysis'] = sentiment
-            enhanced.append(enhanced_article)
-        
-        return enhanced
-    
-    def aggregate_sentiment(self, articles: List[Dict]) -> Dict:
-        """Aggregate sentiment across articles"""
-        if not articles:
-            return {
-                'overall_sentiment': 'neutral',
-                'bullish_score': 0.33,
-                'bearish_score': 0.33,
-                'article_count': 0
-            }
-        
-        bullish_scores = [a.get('sentiment_analysis', {}).get('bullish_score', 0) for a in articles]
-        bearish_scores = [a.get('sentiment_analysis', {}).get('bearish_score', 0) for a in articles]
-        
-        avg_bullish = np.mean(bullish_scores)
-        avg_bearish = np.mean(bearish_scores)
-        
-        overall = 'positive' if avg_bullish > avg_bearish + 0.1 else ('negative' if avg_bearish > avg_bullish + 0.1 else 'neutral')
-        
-        return {
-            'overall_sentiment': overall,
-            'bullish_score': round(avg_bullish, 4),
-            'bearish_score': round(avg_bearish, 4),
-            'confidence': round(max(avg_bullish, avg_bearish), 4),
-            'article_count': len(articles)
-        }
-    
-    def save_results(self, results: Dict, filepath: str):
-        """Save analysis to JSON"""
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(results, f, indent=2, ensure_ascii=False)
-        print(f"✓ Saved: {filepath}")
+        return results
 
 
 if __name__ == "__main__":
+    """Test sentiment analyzer"""
+    
     print("="*80)
-    print("HF METHOD 1: FINANCIAL SENTIMENT ANALYSIS")
+    print("SENTIMENT ANALYZER TEST")
     print("="*80)
     
+    # Create analyzer
     analyzer = HFSentimentAnalyzer()
-    model_loaded = analyzer.load_model()
+    analyzer.load_model()
     
+    # Test articles
     test_articles = [
-        {'title': 'Gold prices surge as inflation fears mount', 'date': '2024-11-01'},
-        {'title': 'Fed signals dovish stance on rates', 'date': '2024-11-01'},
-        {'title': 'Stock market plunges on weak data', 'date': '2024-11-01'},
-        {'title': 'Dollar strengthens against major currencies', 'date': '2024-11-01'}
+        {
+            'title': 'Stock Market Rallies on Strong Jobs Report',
+            'content': 'Markets surged today following better than expected employment data.',
+            'date': '2024-11-01'
+        },
+        {
+            'title': 'Fed Signals Rate Cuts Ahead',
+            'content': 'The Federal Reserve indicated potential rate cuts in coming months.',
+            'date': '2024-11-01'
+        },
+        {
+            'title': 'Recession Fears Mount Amid Economic Data',
+            'content': 'Economists warn of potential recession as indicators weaken.',
+            'date': '2024-11-01'
+        }
     ]
     
-    enhanced = analyzer.analyze_news_articles(test_articles)
+    print("\nAnalyzing articles...")
+    results = analyzer.analyze_news_articles(test_articles)
     
-    for article in enhanced:
-        sent = article['sentiment_analysis']
-        print(f"\n{article['title']}")
-        print(f"  Sentiment: {sent['sentiment'].upper()}")
-        print(f"  Bullish: {sent['bullish_score']:.2%} | Bearish: {sent['bearish_score']:.2%}")
+    print("\nResults:")
+    for r in results:
+        print(f"\n  Title: {r['title']}")
+        print(f"  Sentiment: {r['sentiment'].upper()}")
+        print(f"  Confidence: {r['confidence']:.2%}")
     
-    aggregated = analyzer.aggregate_sentiment(enhanced)
-    print(f"\n{'='*80}")
-    print(f"Overall: {aggregated['overall_sentiment'].upper()}")
-    print(f"Bullish: {aggregated['bullish_score']:.2%} | Bearish: {aggregated['bearish_score']:.2%}")
+    print("\n\nAggregated Sentiment:")
+    aggregated = analyzer.aggregate_sentiment(results)
+    print(f"  Overall: {aggregated['overall_sentiment'].upper()}")
+    print(f"  Confidence: {aggregated['confidence']:.2%}")
+    print(f"  Positive: {aggregated['positive_count']}")
+    print(f"  Negative: {aggregated['negative_count']}")
+    print(f"  Neutral: {aggregated['neutral_count']}")
     
-    analyzer.save_results({'articles': enhanced, 'aggregated': aggregated}, 'hf_sentiment_results.json')
+    # Save results
+    import json
+    with open('hf_sentiment_results.json', 'w') as f:
+        json.dump({
+            'individual_results': results,
+            'aggregated': aggregated
+        }, f, indent=2)
+    
+    print("\n✓ Results saved to hf_sentiment_results.json")
+    print("="*80)
