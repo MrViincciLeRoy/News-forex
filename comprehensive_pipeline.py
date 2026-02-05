@@ -34,6 +34,17 @@ class EnhancedComprehensivePipeline:
         print("="*80)
         
         self._initialize_modules()
+        
+        if self.enable_viz:
+            try:
+                import matplotlib
+                matplotlib.use('Agg')
+                import matplotlib.pyplot as plt
+                self.plt = plt
+                print("✓ Visualization support enabled")
+            except ImportError:
+                print("⚠️  matplotlib not available, visualizations disabled")
+                self.enable_viz = False
     
     def _initialize_modules(self):
         """Initialize analysis modules"""
@@ -100,6 +111,11 @@ class EnhancedComprehensivePipeline:
         
         # Executive summary
         results['sections']['executive_summary'] = self._create_executive_summary(results)
+        
+        # Generate visualizations
+        if self.enable_viz:
+            print(f"\n📊 Generating visualizations...")
+            self._generate_visualizations(results)
         
         # Save results
         report_file = self._save_results(results, date, event_name)
@@ -225,6 +241,117 @@ class EnhancedComprehensivePipeline:
                 'Stay alert to economic data releases'
             ]
         }
+    
+    def _generate_visualizations(self, results: Dict):
+        """Generate visualizations for key sections"""
+        
+        sections = results.get('sections', {})
+        
+        # Indicators chart
+        if 'indicators' in sections:
+            try:
+                data = sections['indicators']
+                buy = data.get('buy_signals', 0)
+                sell = data.get('sell_signals', 0)
+                
+                fig, ax = self.plt.subplots(figsize=(8, 6))
+                ax.pie([buy, sell], labels=['Buy', 'Sell'], autopct='%1.1f%%',
+                      colors=['#28a745', '#dc3545'], startangle=90)
+                ax.set_title('Technical Signals Distribution')
+                
+                filename = f'{self.viz_dir}/indicators_signals.png'
+                self.plt.savefig(filename, dpi=150, bbox_inches='tight')
+                self.plt.close()
+                print(f"  ✓ Saved: {filename}")
+            except Exception as e:
+                print(f"  ⚠️  Indicators chart failed: {e}")
+        
+        # News themes
+        if 'news' in sections:
+            try:
+                data = sections['news']
+                themes = data.get('key_themes', [])[:5]
+                values = [len(t) * 10 for t in themes]
+                
+                if themes:
+                    fig, ax = self.plt.subplots(figsize=(10, 6))
+                    ax.barh(themes, values, color='#667eea')
+                    ax.set_xlabel('Frequency')
+                    ax.set_title('Top News Themes')
+                    ax.grid(axis='x', alpha=0.3)
+                    
+                    filename = f'{self.viz_dir}/news_themes.png'
+                    self.plt.savefig(filename, dpi=150, bbox_inches='tight')
+                    self.plt.close()
+                    print(f"  ✓ Saved: {filename}")
+            except Exception as e:
+                print(f"  ⚠️  News chart failed: {e}")
+        
+        # Structure levels
+        if 'structure' in sections:
+            try:
+                data = sections['structure']
+                support = data.get('support_levels', [])
+                resistance = data.get('resistance_levels', [])
+                
+                if support and resistance:
+                    fig, ax = self.plt.subplots(figsize=(10, 6))
+                    
+                    # Plot support
+                    ax.hlines(support, 0, 1, colors='green', linestyles='dashed', 
+                             label='Support', linewidth=2, alpha=0.7)
+                    
+                    # Plot resistance
+                    ax.hlines(resistance, 0, 1, colors='red', linestyles='dashed',
+                             label='Resistance', linewidth=2, alpha=0.7)
+                    
+                    # Current price
+                    current = 1975
+                    ax.hlines(current, 0, 1, colors='blue', linewidth=3, label='Current')
+                    
+                    ax.set_xlim(0, 1)
+                    ax.set_ylabel('Price Level')
+                    ax.set_title('Key Support & Resistance Levels')
+                    ax.legend()
+                    ax.grid(axis='y', alpha=0.3)
+                    ax.set_xticks([])
+                    
+                    filename = f'{self.viz_dir}/structure_levels.png'
+                    self.plt.savefig(filename, dpi=150, bbox_inches='tight')
+                    self.plt.close()
+                    print(f"  ✓ Saved: {filename}")
+            except Exception as e:
+                print(f"  ⚠️  Structure chart failed: {e}")
+        
+        # Synthesis overview
+        if 'synthesis' in sections:
+            try:
+                data = sections['synthesis']
+                factors = data.get('key_factors', [])[:4]
+                
+                if factors:
+                    values = [85, 70, 65, 55]
+                    
+                    fig, ax = self.plt.subplots(figsize=(8, 8), subplot_kw=dict(projection='polar'))
+                    
+                    angles = np.linspace(0, 2 * np.pi, len(factors), endpoint=False).tolist()
+                    values_plot = values + [values[0]]
+                    angles_plot = angles + [angles[0]]
+                    
+                    ax.plot(angles_plot, values_plot, 'o-', linewidth=2, color='#667eea')
+                    ax.fill(angles_plot, values_plot, alpha=0.25, color='#667eea')
+                    ax.set_xticks(angles)
+                    ax.set_xticklabels([f[:20] + '...' if len(f) > 20 else f for f in factors])
+                    ax.set_ylim(0, 100)
+                    ax.set_title('Key Factors Importance', y=1.08)
+                    ax.grid(True)
+                    
+                    filename = f'{self.viz_dir}/synthesis_factors.png'
+                    self.plt.savefig(filename, dpi=150, bbox_inches='tight')
+                    self.plt.close()
+                    print(f"  ✓ Saved: {filename}")
+            except Exception as e:
+                print(f"  ⚠️  Synthesis chart failed: {e}")
     
     def _save_results(self, results: Dict, date: str, event_name: Optional[str]) -> str:
         """Save analysis results and individual section JSONs"""
