@@ -60,119 +60,79 @@ class COTDataFetcher:
         return report_tuesday, release_friday
     
     def fetch_cot_data(self, year, report_type='financial'):
-        """
-        Fetch COT data from CFTC with verbose logging
-        """
-        print(f"\n[DEBUG] Attempting to fetch {report_type} data for year {year}")
+        print(f"\n[DEBUG] Fetching {report_type} data for year {year}")
         
-        filenames = []
-        
-        if report_type == 'financial':
-            filenames = [
-                f"dea_fut_xls_{year}.zip",
-                f"deacot{year}.zip",
-                f"annual.txt"
-            ]
-        else:
-            filenames = [
-                f"dea_com_xls_{year}.zip",
-                f"deacom{year}.zip",
-                f"annual.txt"
-            ]
+        filenames = [
+            f"dea_fut_xls_{year}.zip" if report_type == 'financial' else f"dea_com_xls_{year}.zip",
+            f"deacot{year}.zip" if report_type == 'financial' else f"deacom{year}.zip",
+            f"annual.txt"
+        ]
         
         for idx, filename in enumerate(filenames, 1):
             url = f"{self.base_url}/{filename}"
             print(f"[DEBUG] Attempt {idx}/{len(filenames)}: {url}")
             
             try:
-                print(f"[DEBUG] Sending GET request...")
                 response = requests.get(url, timeout=30)
                 print(f"[DEBUG] Response status: {response.status_code}")
-                print(f"[DEBUG] Response headers: {dict(response.headers)}")
-                print(f"[DEBUG] Content-Type: {response.headers.get('content-type', 'unknown')}")
-                print(f"[DEBUG] Content-Length: {len(response.content)} bytes")
                 
                 if response.status_code == 200:
-                    try:
-                        # Handle ZIP files
-                        if filename.endswith('.zip'):
-                            print(f"[DEBUG] Processing ZIP file...")
-                            try:
-                                with zipfile.ZipFile(io.BytesIO(response.content)) as z:
-                                    print(f"[DEBUG] ZIP contents: {z.namelist()}")
+                    if filename.endswith('.zip'):
+                        print(f"[DEBUG] Processing ZIP file...")
+                        with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+                            print(f"[DEBUG] ZIP contents: {z.namelist()}")
+                            
+                            for file_info in z.namelist():
+                                if file_info.endswith(('.xls', '.xlsx', '.txt')):
+                                    print(f"[DEBUG] Extracting {file_info}...")
                                     
-                                    for file_info in z.namelist():
-                                        print(f"[DEBUG] Checking file: {file_info}")
+                                    with z.open(file_info) as f:
+                                        file_content = f.read()
                                         
-                                        if file_info.endswith(('.xls', '.xlsx', '.txt')):
-                                            print(f"[DEBUG] Extracting {file_info}...")
-                                            
-                                            with z.open(file_info) as f:
-                                                file_content = f.read()
-                                                print(f"[DEBUG] Extracted file size: {len(file_content)} bytes")
-                                                
-                                                if file_info.endswith('.txt'):
-                                                    print(f"[DEBUG] Parsing as CSV...")
-                                                    df = pd.read_csv(io.BytesIO(file_content))
-                                                else:
-                                                    print(f"[DEBUG] Parsing as Excel...")
-                                                    df = pd.read_excel(io.BytesIO(file_content))
-                                                
-                                                print(f"[DEBUG] DataFrame shape: {df.shape}")
-                                                print(f"[DEBUG] DataFrame columns: {list(df.columns)[:10]}")
-                                                
-                                                # Check for required column
-                                                if 'Report_Date_as_YYYY-MM-DD' in df.columns:
-                                                    print(f"[DEBUG] Found Report_Date column!")
-                                                    df['Report_Date_as_YYYY-MM-DD'] = pd.to_datetime(
-                                                        df['Report_Date_as_YYYY-MM-DD']
-                                                    )
-                                                    print(f"[DEBUG] Date range: {df['Report_Date_as_YYYY-MM-DD'].min()} to {df['Report_Date_as_YYYY-MM-DD'].max()}")
-                                                    print(f"✓ Successfully loaded {len(df)} records for {year} from {filename}")
-                                                    return df
-                                                else:
-                                                    print(f"[DEBUG] Column 'Report_Date_as_YYYY-MM-DD' not found")
-                                                    print(f"[DEBUG] Available columns: {list(df.columns)}")
-                            
-                            except zipfile.BadZipFile as e:
-                                print(f"[ERROR] Bad ZIP file: {e}")
-                                print(f"[DEBUG] First 100 bytes of response: {response.content[:100]}")
-                                continue
-                        
-                        # Handle direct text files
-                        elif filename.endswith('.txt'):
-                            print(f"[DEBUG] Processing text file...")
-                            df = pd.read_csv(io.StringIO(response.text))
-                            print(f"[DEBUG] DataFrame shape: {df.shape}")
-                            print(f"[DEBUG] DataFrame columns: {list(df.columns)[:10]}")
-                            
-                            if 'Report_Date_as_YYYY-MM-DD' in df.columns:
-                                df['Report_Date_as_YYYY-MM-DD'] = pd.to_datetime(
-                                    df['Report_Date_as_YYYY-MM-DD']
-                                )
-                                df_year = df[df['Report_Date_as_YYYY-MM-DD'].dt.year == year]
-                                if not df_year.empty:
-                                    print(f"✓ Loaded {len(df_year)} records for {year}")
-                                    return df_year
-                                else:
-                                    print(f"[DEBUG] No data for year {year} in file")
+                                        if file_info.endswith('.txt'):
+                                            df = pd.read_csv(io.BytesIO(file_content))
+                                        else:
+                                            df = pd.read_excel(io.BytesIO(file_content))
+                                        
+                                        print(f"[DEBUG] DataFrame shape: {df.shape}")
+                                        
+                                        # Handle different date column formats
+                                        if 'Report_Date_as_MM_DD_YYYY' in df.columns:
+                                            df['Report_Date_as_YYYY-MM-DD'] = pd.to_datetime(
+                                                df['Report_Date_as_MM_DD_YYYY']
+                                            )
+                                        elif 'Report_Date_as_YYYY-MM-DD' in df.columns:
+                                            df['Report_Date_as_YYYY-MM-DD'] = pd.to_datetime(
+                                                df['Report_Date_as_YYYY-MM-DD']
+                                            )
+                                        else:
+                                            print(f"[DEBUG] No recognized date column found")
+                                            continue
+                                        
+                                        print(f"✓ Successfully loaded {len(df)} records for {year}")
+                                        return df
                     
-                    except Exception as parse_error:
-                        print(f"[ERROR] Parse error: {type(parse_error).__name__}: {parse_error}")
-                        import traceback
-                        traceback.print_exc()
-                        continue
-                
-                else:
-                    print(f"[DEBUG] Skipping due to non-200 status")
+                    elif filename.endswith('.txt'):
+                        df = pd.read_csv(io.StringIO(response.text))
+                        
+                        if 'Report_Date_as_MM_DD_YYYY' in df.columns:
+                            df['Report_Date_as_YYYY-MM-DD'] = pd.to_datetime(
+                                df['Report_Date_as_MM_DD_YYYY']
+                            )
+                        elif 'Report_Date_as_YYYY-MM-DD' in df.columns:
+                            df['Report_Date_as_YYYY-MM-DD'] = pd.to_datetime(
+                                df['Report_Date_as_YYYY-MM-DD']
+                            )
+                        else:
+                            continue
+                        
+                        df_year = df[df['Report_Date_as_YYYY-MM-DD'].dt.year == year]
+                        if not df_year.empty:
+                            print(f"✓ Loaded {len(df_year)} records for {year}")
+                            return df_year
             
-            except requests.exceptions.RequestException as e:
-                print(f"[ERROR] Request failed: {type(e).__name__}: {e}")
-                continue
             except Exception as e:
-                print(f"[ERROR] Unexpected error: {type(e).__name__}: {e}")
-                import traceback
-                traceback.print_exc()
+                print(f"[ERROR] {type(e).__name__}: {e}")
                 continue
         
         print(f"[ERROR] Could not fetch {year} data from any source")
@@ -236,19 +196,17 @@ class COTDataFetcher:
             print(f"[ERROR] No CFTC code found for {symbol}")
             return None
         
-        print(f"[DEBUG] Filtering for CFTC code: {code}")
         symbol_data = df[df['CFTC_Contract_Market_Code'] == code]
-        print(f"[DEBUG] Found {len(symbol_data)} records for {symbol}")
         
-        if len(symbol_data) > 0:
-            print(f"[DEBUG] Date range in data: {symbol_data['Report_Date_as_YYYY-MM-DD'].min()} to {symbol_data['Report_Date_as_YYYY-MM-DD'].max()}")
+        if len(symbol_data) == 0:
+            print(f"[ERROR] No data found for {symbol} (code: {code})")
+            return None
         
         report_data = symbol_data[
             symbol_data['Report_Date_as_YYYY-MM-DD'] == report_tuesday
         ]
         
         if report_data.empty:
-            print(f"[DEBUG] No exact match for {report_tuesday}, finding closest...")
             closest = symbol_data.iloc[(symbol_data['Report_Date_as_YYYY-MM-DD'] - report_tuesday).abs().argsort()[:1]]
             if not closest.empty:
                 report_data = closest
@@ -350,7 +308,7 @@ if __name__ == "__main__":
     fetcher = COTDataFetcher()
     
     print("="*80)
-    print("COT DATA FETCHER - VERBOSE DEBUG MODE")
+    print("COT DATA FETCHER - FIXED VERSION")
     print("="*80)
     
     symbols = ['EUR', 'GOLD', 'CRUDE_OIL']
@@ -374,4 +332,4 @@ if __name__ == "__main__":
     
     print(f"\n{'='*80}")
     print("Test complete")
-    print('='*80) 
+    print('='*80)
