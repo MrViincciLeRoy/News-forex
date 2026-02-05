@@ -1,0 +1,230 @@
+name: Generate AI-Powered HTML Report (Local LLM)
+
+on:
+  workflow_dispatch:
+    inputs:
+      json_file:
+        description: 'Path to JSON file (leave empty for most recent)'
+        required: false
+        default: ''
+      force_generate:
+        description: 'Force generate new data even if JSON exists'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+  workflow_run:
+    workflows: ["Test Comprehensive Pipeline"]
+    types:
+      - completed
+
+jobs:
+  generate-ai-report:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    timeout-minutes: 60  # Increased for model download
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        # Install llama-cpp-python for local LLM
+        pip install llama-cpp-python
+        pip install requests
+        pip install -r requirements.txt || echo "requirements.txt not found, skipping"
+    
+    - name: Download pipeline artifacts (if triggered by workflow)
+      if: github.event_name == 'workflow_run'
+      uses: actions/download-artifact@v4
+      continue-on-error: true
+      with:
+        pattern: comprehensive-analysis-*
+        path: pipeline_output/
+        run-id: ${{ github.event.workflow_run.id }}
+        merge-multiple: true
+    
+    - name: Find or Generate JSON file
+      id: find-json
+      env:
+        ALPHA_VANTAGE_API_KEY_1: ${{ secrets.ALPHA_VANTAGE_API_KEY_1 }}
+        ALPHA_VANTAGE_API_KEY_2: ${{ secrets.ALPHA_VANTAGE_API_KEY_2 }}
+        ALPHA_VANTAGE_API_KEY_3: ${{ secrets.ALPHA_VANTAGE_API_KEY_3 }}
+        ALPHA_VANTAGE_API_KEY_4: ${{ secrets.ALPHA_VANTAGE_API_KEY_4 }}
+        ALPHA_VANTAGE_API_KEY_5: ${{ secrets.ALPHA_VANTAGE_API_KEY_5 }}
+        ALPHA_VANTAGE_API_KEY_6: ${{ secrets.ALPHA_VANTAGE_API_KEY_6 }}
+        FRED_API_KEY_1: ${{ secrets.FRED_API_KEY_1 }}
+        FRED_API_KEY_2: ${{ secrets.FRED_API_KEY_2 }}
+        FRED_API_KEY_3: ${{ secrets.FRED_API_KEY_3 }}
+        FRED_API_KEY_4: ${{ secrets.FRED_API_KEY_4 }}
+        FRED_API_KEY_5: ${{ secrets.FRED_API_KEY_5 }}
+        FRED_API_KEY_6: ${{ secrets.FRED_API_KEY_6 }}
+        SERP_API_KEY_1: ${{ secrets.SERP_API_KEY_1 }}
+        FORCE_GENERATE: ${{ github.event.inputs.force_generate }}
+      run: |
+        echo "================================"
+        echo "FINDING OR GENERATING JSON DATA"
+        echo "================================"
+        
+        FORCE="${FORCE_GENERATE:-false}"
+        
+        # Check if user provided a specific file
+        if [ -n "${{ github.event.inputs.json_file }}" ]; then
+          JSON_FILE="${{ github.event.inputs.json_file }}"
+          echo "📁 User specified: $JSON_FILE"
+          
+          if [ ! -f "$JSON_FILE" ]; then
+            echo "❌ ERROR: Specified file not found: $JSON_FILE"
+            exit 1
+          fi
+        else
+          # Look for existing JSON files
+          echo "🔍 Searching for comprehensive_*.json files..."
+          JSON_FILE=$(find . -name "comprehensive_*.json" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
+          
+          if [ -n "$JSON_FILE" ] && [ "$FORCE" != "true" ]; then
+            echo "✅ Found existing JSON: $JSON_FILE"
+          else
+            if [ "$FORCE" == "true" ]; then
+              echo "🔄 Force generation requested"
+            else
+              echo "⚠️  No JSON file found"
+            fi
+            
+            echo "🚀 Running comprehensive pipeline to generate data..."
+            echo ""
+            
+            # Run the comprehensive pipeline
+            python comprehensive_pipeline.py 2>&1 | tee pipeline_run.log
+            
+            PIPELINE_EXIT=$?
+            
+            if [ $PIPELINE_EXIT -ne 0 ]; then
+              echo ""
+              echo "❌ Pipeline failed with exit code: $PIPELINE_EXIT"
+              echo "Last 50 lines of output:"
+              tail -50 pipeline_run.log
+              exit 1
+            fi
+            
+            # Find the newly generated JSON
+            echo ""
+            echo "🔍 Looking for generated JSON file..."
+            JSON_FILE=$(find . -name "comprehensive_*.json" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
+            
+            if [ -z "$JSON_FILE" ]; then
+              echo "❌ ERROR: Pipeline completed but no JSON file was generated"
+              echo ""
+              echo "Generated files:"
+              find . -name "*.json" -type f -mmin -10
+              exit 1
+            fi
+            
+            echo "✅ Generated new data: $JSON_FILE"
+          fi
+        fi
+        
+        # Verify the file exists and is valid JSON
+        if [ ! -f "$JSON_FILE" ]; then
+          echo "❌ ERROR: JSON file not found: $JSON_FILE"
+          exit 1
+        fi
+        
+        # Quick JSON validation
+        if ! python -c "import json; json.load(open('$JSON_FILE'))" 2>/dev/null; then
+          echo "❌ ERROR: Invalid JSON file: $JSON_FILE"
+          exit 1
+        fi
+        
+        FILE_SIZE=$(du -h "$JSON_FILE" | cut -f1)
+        echo ""
+        echo "================================"
+        echo "✅ JSON FILE READY"
+        echo "================================"
+        echo "File: $JSON_FILE"
+        echo "Size: $FILE_SIZE"
+        echo "================================"
+        
+        echo "json_file=$JSON_FILE" >> $GITHUB_OUTPUT
+    
+    - name: Generate AI-powered HTML report with Local LLM
+      run: |
+        echo "================================"
+        echo "GENERATING AI-POWERED REPORT"
+        echo "Using: BIST-Financial-Qwen-7B"
+        echo "Mode: Local LLM (No API needed)"
+        echo "================================"
+        python local_llm_report_generator.py "${{ steps.find-json.outputs.json_file }}"
+    
+    - name: Upload HTML report
+      uses: actions/upload-artifact@v4
+      with:
+        name: ai-html-report-${{ github.run_number }}
+        path: |
+          **/*_ai_report.html
+        retention-days: 90
+    
+    - name: Upload pipeline output (if generated)
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: pipeline-output-${{ github.run_number }}
+        path: |
+          test_pipeline_output/
+          pipeline_output/
+          *.log
+        retention-days: 30
+    
+    - name: Display summary
+      if: success()
+      run: |
+        echo "================================"
+        echo "AI-POWERED REPORT GENERATED"
+        echo "================================"
+        echo ""
+        echo "Input JSON: ${{ steps.find-json.outputs.json_file }}"
+        echo ""
+        echo "HTML Reports:"
+        find . -name "*_ai_report.html" -type f -exec ls -lh {} \;
+        echo ""
+        echo "📥 Download from: Actions > This Run > Artifacts section"
+        echo ""
+        echo "✅ Report generation complete!"
+    
+    - name: Display failure info
+      if: failure()
+      run: |
+        echo "================================"
+        echo "❌ WORKFLOW FAILED"
+        echo "================================"
+        echo ""
+        echo "Check the logs above for details."
+        echo ""
+        echo "Common issues:"
+        echo "1. llama-cpp-python installation failed"
+        echo "2. Model download timeout"
+        echo "3. Pipeline dependencies not installed"
+        echo "4. Invalid or missing data files"
+        echo ""
+        echo "Available files:"
+        find . -name "*.json" -o -name "*.log" | head -20
+    
+    - name: Comment on PR (if applicable)
+      if: github.event_name == 'pull_request' && success()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: '🤖 **AI-Powered Analysis Report Generated!**\n\n✨ Using local BIST-Financial-Qwen-7B model (no API required)\n\nDownload the HTML report from the workflow artifacts to view the comprehensive AI analysis.'
+          })
