@@ -199,6 +199,10 @@ class EconomicIndicatorIntegration:
         if len(indicator_data) == 0 or len(asset_data) == 0:
             return None
         
+        # Ensure both indexes are timezone-naive for compatibility
+        if hasattr(asset_data.index, 'tz') and asset_data.index.tz is not None:
+            asset_data.index = asset_data.index.tz_localize(None)
+        
         merged = pd.DataFrame({
             'indicator': indicator_data['value'],
             'asset': asset_data
