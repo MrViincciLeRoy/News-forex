@@ -58,6 +58,8 @@ jobs:
         FRED_API_KEY_4: ${{ secrets.FRED_API_KEY_4 }}
         FRED_API_KEY_5: ${{ secrets.FRED_API_KEY_5 }}
         FRED_API_KEY_6: ${{ secrets.FRED_API_KEY_6 }}
+        
+        SERP_API_KEY_1: ${{ secrets.SERP_API_KEY_1 }}
       run: |
         python comprehensive_pipeline.py
     
@@ -75,7 +77,8 @@ jobs:
         FRED_API_KEY_3: ${{ secrets.FRED_API_KEY_3 }}
         FRED_API_KEY_4: ${{ secrets.FRED_API_KEY_4 }}
         FRED_API_KEY_5: ${{ secrets.FRED_API_KEY_5 }}
-        FRED_API_KEY_6: ${{ secrets.FRED_API_KEY_6 }}
+        FRED_API_KEY_6: ${{ secrets.FRED_API_KEY_6 }} 
+        SERP_API_KEY_1: ${{ secrets.SERP_API_KEY_1 }}
       run: |
         python -c "
         from comprehensive_pipeline import ComprehensiveAnalysisPipeline
