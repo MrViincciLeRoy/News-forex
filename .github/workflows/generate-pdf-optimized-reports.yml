@@ -1,0 +1,384 @@
+name: Generate PDF-Optimized Reports
+
+on:
+  workflow_dispatch:
+    inputs:
+      json_file:
+        description: 'Path to JSON file (leave empty for most recent)'
+        required: false
+        default: ''
+  workflow_run:
+    workflows: ["Test Comprehensive Pipeline"]
+    types:
+      - completed
+
+jobs:
+  generate-pdf-optimized-report:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    timeout-minutes: 20
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        # PDF conversion dependencies
+        sudo apt-get update
+        sudo apt-get install -y \
+          libpango-1.0-0 \
+          libpangoft2-1.0-0 \
+          libharfbuzz0b \
+          libfribidi0 \
+          libgdk-pixbuf2.0-0 \
+          shared-mime-info
+        
+        # Python packages
+        pip install weasyprint
+        pip install pandas numpy
+        pip install -r requirements.txt || echo "requirements.txt not found"
+    
+    - name: Download pipeline artifacts (if triggered by workflow)
+      if: github.event_name == 'workflow_run'
+      uses: actions/download-artifact@v4
+      continue-on-error: true
+      with:
+        pattern: comprehensive-analysis-*
+        path: pipeline_output/
+        run-id: ${{ github.event.workflow_run.id }}
+        merge-multiple: true
+    
+    - name: Find or Create JSON file
+      id: find-json
+      run: |
+        echo "================================"
+        echo "FINDING JSON DATA"
+        echo "================================"
+        
+        # Check if user provided a specific file
+        if [ -n "${{ github.event.inputs.json_file }}" ]; then
+          JSON_FILE="${{ github.event.inputs.json_file }}"
+          echo "📁 User specified: $JSON_FILE"
+          
+          if [ ! -f "$JSON_FILE" ]; then
+            echo "❌ ERROR: Specified file not found: $JSON_FILE"
+            exit 1
+          fi
+        else
+          # Look for existing JSON files
+          echo "🔍 Searching for comprehensive_*.json files..."
+          JSON_FILE=$(find . -name "comprehensive_*.json" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
+          
+          if [ -n "$JSON_FILE" ]; then
+            echo "✅ Found existing JSON: $JSON_FILE"
+          else
+            echo "⚠️  No JSON file found, creating mock data..."
+            
+            mkdir -p test_output
+            
+            python -c "
+        import json
+        from datetime import datetime
+        
+        mock_data = {
+            'metadata': {
+                'date': '2024-11-01',
+                'event_name': 'Non-Farm Payrolls',
+                'timestamp': datetime.now().isoformat(),
+                'pipeline_version': '2.0'
+            },
+            'sections': {
+                'executive_summary': {
+                    'market_overview': 'Analysis of Non-Farm Payrolls on 2024-11-01',
+                    'sentiment': {'overall': 'BULLISH', 'confidence': 0.75},
+                    'key_findings': [
+                        'Technical indicators align bullishly',
+                        'Institutional positioning shows strength',
+                        'Seasonal patterns favorable'
+                    ],
+                    'recommendations': [
+                        'Monitor key support levels',
+                        'Watch for volume confirmation'
+                    ]
+                },
+                'news': {
+                    'article_count': 15,
+                    'sources': ['Reuters', 'Bloomberg', 'FT'],
+                    'key_themes': ['employment', 'inflation', 'growth'],
+                    'sentiment': 'POSITIVE'
+                },
+                'indicators': {
+                    'overall_bias': 'BULLISH',
+                    'buy_signals': 8,
+                    'sell_signals': 3,
+                    'neutral_signals': 2
+                },
+                'cot': {
+                    'net_positioning': 'LONG',
+                    'positioning_change': '+15%',
+                    'institutional_sentiment': 'BULLISH'
+                },
+                'economic': {
+                    'overall_status': 'MODERATE',
+                    'inflation_trend': 'RISING',
+                    'growth_outlook': 'STABLE'
+                },
+                'correlations': {
+                    'key_relationships': {
+                        'DXY_GOLD': {'strength': 'STRONG', 'direction': 'INVERSE'}
+                    }
+                },
+                'structure': {
+                    'trend': 'UPTREND',
+                    'support_levels': [1950, 1925, 1900],
+                    'resistance_levels': [2000, 2025, 2050]
+                },
+                'seasonality': {
+                    'seasonal_bias': 'BULLISH',
+                    'historical_performance': '+2.5%'
+                },
+                'volume': {
+                    'volume_trend': 'INCREASING',
+                    'volume_profile': 'ACCUMULATION'
+                },
+                'hf_methods': {
+                    'sentiment_score': 0.65,
+                    'forecast_direction': 'UP',
+                    'anomalies_detected': 0
+                },
+                'synthesis': {
+                    'overall_outlook': 'BULLISH',
+                    'confidence': 0.75,
+                    'key_factors': [
+                        'Technical strength',
+                        'Institutional support',
+                        'Favorable seasonality'
+                    ],
+                    'risks': ['Economic uncertainty', 'Elevated volatility']
+                }
+            }
+        }
+        
+        with open('test_output/comprehensive_mock.json', 'w') as f:
+            json.dump(mock_data, f, indent=2)
+        
+        print('✓ Mock data created')
+            "
+            
+            JSON_FILE="test_output/comprehensive_mock.json"
+          fi
+        fi
+        
+        # Verify the file exists and is valid JSON
+        if [ ! -f "$JSON_FILE" ]; then
+          echo "❌ ERROR: JSON file not found: $JSON_FILE"
+          exit 1
+        fi
+        
+        if ! python -c "import json; json.load(open('$JSON_FILE'))" 2>/dev/null; then
+          echo "❌ ERROR: Invalid JSON file: $JSON_FILE"
+          exit 1
+        fi
+        
+        FILE_SIZE=$(du -h "$JSON_FILE" | cut -f1)
+        echo ""
+        echo "================================"
+        echo "✅ JSON FILE READY"
+        echo "================================"
+        echo "File: $JSON_FILE"
+        echo "Size: $FILE_SIZE"
+        echo "================================"
+        
+        echo "json_file=$JSON_FILE" >> $GITHUB_OUTPUT
+    
+    - name: Generate PDF-optimized HTML report
+      run: |
+        echo "================================"
+        echo "GENERATING PDF-OPTIMIZED HTML"
+        echo "================================"
+        
+        if [ -f pdf_optimized_report_generator.py ]; then
+          python pdf_optimized_report_generator.py "${{ steps.find-json.outputs.json_file }}"
+        else
+          echo "⚠️  pdf_optimized_report_generator.py not found"
+          echo "Using local_llm_report_generator.py as fallback..."
+          
+          if [ -f local_llm_report_generator.py ]; then
+            python local_llm_report_generator.py "${{ steps.find-json.outputs.json_file }}"
+          else
+            echo "❌ No report generator found"
+            exit 1
+          fi
+        fi
+    
+    - name: Find generated HTML
+      id: find-html
+      run: |
+        # Look for PDF-optimized HTML first
+        HTML_FILE=$(find . -name "*_pdf_optimized.html" -type f | head -1)
+        
+        # Fall back to any AI report HTML
+        if [ -z "$HTML_FILE" ]; then
+          HTML_FILE=$(find . -name "*_ai_report.html" -type f | head -1)
+        fi
+        
+        if [ -z "$HTML_FILE" ]; then
+          echo "❌ No HTML file generated"
+          exit 1
+        fi
+        
+        echo "html_file=$HTML_FILE" >> $GITHUB_OUTPUT
+        echo "✓ Found HTML: $HTML_FILE"
+    
+    - name: Convert HTML to PDF with WeasyPrint
+      run: |
+        echo "================================"
+        echo "CONVERTING TO PDF"
+        echo "================================"
+        
+        HTML_FILE="${{ steps.find-html.outputs.html_file }}"
+        OUTPUT_PDF="${HTML_FILE%.html}.pdf"
+        
+        if [ -f html_to_pdf.py ]; then
+          python html_to_pdf.py "$HTML_FILE" "$OUTPUT_PDF" --method weasyprint
+        else
+          echo "Using WeasyPrint directly..."
+          python -c "
+        from weasyprint import HTML, CSS
+        
+        html_file = '$HTML_FILE'
+        pdf_file = '$OUTPUT_PDF'
+        
+        # Additional CSS for PDF
+        pdf_css = CSS(string='''
+            @page {
+                size: A4;
+                margin: 2cm 1.5cm;
+            }
+            
+            .section {
+                page-break-inside: avoid;
+            }
+            
+            table {
+                page-break-inside: avoid;
+            }
+        ''')
+        
+        HTML(filename=html_file).write_pdf(
+            pdf_file,
+            stylesheets=[pdf_css],
+            optimize_images=True,
+            jpeg_quality=85
+        )
+        
+        print(f'✓ PDF generated: {pdf_file}')
+          "
+        fi
+        
+        echo "pdf_file=$OUTPUT_PDF" >> $GITHUB_OUTPUT
+    
+    - name: Verify PDF quality
+      run: |
+        PDF_FILE=$(find . -name "*_pdf_optimized.pdf" -o -name "*_ai_report.pdf" | head -1)
+        
+        if [ ! -f "$PDF_FILE" ]; then
+          echo "❌ PDF file not found"
+          exit 1
+        fi
+        
+        SIZE=$(stat -c%s "$PDF_FILE")
+        SIZE_KB=$(echo "scale=2; $SIZE/1024" | bc)
+        SIZE_MB=$(echo "scale=2; $SIZE/1024/1024" | bc)
+        
+        echo "================================"
+        echo "PDF QUALITY CHECK"
+        echo "================================"
+        echo "File: $PDF_FILE"
+        echo "Size: $SIZE bytes"
+        echo "      $SIZE_KB KB"
+        echo "      $SIZE_MB MB"
+        echo ""
+        
+        # Basic quality checks
+        if [ $SIZE -lt 5000 ]; then
+          echo "⚠️  WARNING: PDF file is very small ($SIZE bytes)"
+          echo "This may indicate rendering issues"
+        elif [ $SIZE -lt 50000 ]; then
+          echo "✓ PDF size reasonable for simple content"
+        else
+          echo "✓ PDF size looks good for comprehensive report"
+        fi
+        
+        # Check if file is valid PDF
+        if file "$PDF_FILE" | grep -q "PDF"; then
+          echo "✓ File is valid PDF format"
+        else
+          echo "❌ File may not be valid PDF"
+          exit 1
+        fi
+    
+    - name: Upload HTML and PDF reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: pdf-optimized-reports-${{ github.run_number }}
+        path: |
+          **/*_pdf_optimized.html
+          **/*_pdf_optimized.pdf
+          **/*_ai_report.html
+          **/*_ai_report.pdf
+        retention-days: 90
+    
+    - name: Upload input data
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: input-data-${{ github.run_number }}
+        path: |
+          ${{ steps.find-json.outputs.json_file }}
+        retention-days: 30
+    
+    - name: Display summary
+      if: success()
+      run: |
+        echo "================================"
+        echo "PDF REPORT GENERATION COMPLETE"
+        echo "================================"
+        echo ""
+        echo "📊 Input JSON: ${{ steps.find-json.outputs.json_file }}"
+        echo "🌐 HTML Report: ${{ steps.find-html.outputs.html_file }}"
+        echo ""
+        echo "📄 PDF Reports:"
+        find . -name "*_pdf_optimized.pdf" -o -name "*_ai_report.pdf" | while read pdf; do
+          SIZE=$(du -h "$pdf" | cut -f1)
+          echo "  - $pdf ($SIZE)"
+        done
+        echo ""
+        echo "📥 Download from: Actions > This Run > Artifacts"
+        echo ""
+        echo "✅ Generation complete!"
+        echo "================================"
+    
+    - name: Display failure info
+      if: failure()
+      run: |
+        echo "================================"
+        echo "❌ WORKFLOW FAILED"
+        echo "================================"
+        echo ""
+        echo "Check the logs above for details."
+        echo ""
+        echo "Common issues:"
+        echo "1. Missing JSON data file"
+        echo "2. WeasyPrint rendering errors"
+        echo "3. Invalid JSON structure"
+        echo "4. CSS/HTML formatting issues"
+        echo ""
+        echo "Generated files:"
+        find . -name "*.json" -o -name "*.html" -o -name "*.pdf" | head -20
