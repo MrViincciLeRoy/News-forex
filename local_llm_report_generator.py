@@ -1,6 +1,6 @@
 """
-Local LLM Report Generator - Fixed Version
-Generates AI-powered HTML reports using local LLM (no API keys needed)
+Local LLM Report Generator using BIST-Financial-Qwen-7B
+Generates AI-powered HTML reports using financial-tuned LLM
 """
 
 import json
@@ -15,31 +15,33 @@ try:
     LLAMA_CPP_AVAILABLE = True
 except ImportError:
     LLAMA_CPP_AVAILABLE = False
-    print("⚠️  llama-cpp-python not available, using fallback mode")
+    print("⚠️  llama-cpp-python not available")
+    print("Install with: pip install llama-cpp-python")
 
 
 class LocalLLMReportGenerator:
-    """Generate comprehensive HTML reports using local LLM"""
+    """Generate comprehensive HTML reports using BIST-Financial-Qwen-7B"""
     
-    def __init__(self, model_path: Optional[str] = None):
-        self.model_path = model_path
+    def __init__(self):
         self.model = None
         
-        if LLAMA_CPP_AVAILABLE and model_path and os.path.exists(model_path):
+        if LLAMA_CPP_AVAILABLE:
             try:
-                print(f"Loading model from: {model_path}")
-                self.model = Llama(
-                    model_path=model_path,
+                print("Loading BIST-Financial-Qwen-7B model...")
+                self.model = Llama.from_pretrained(
+                    repo_id="bist-quant/BIST-Financial-Qwen-7B",
+                    filename="gguf/qwen-kap-final-Q4_K_M.gguf",
                     n_ctx=2048,
                     n_threads=4,
                     n_gpu_layers=0
                 )
-                print("✓ Model loaded successfully")
+                print("✓ BIST-Financial-Qwen-7B loaded successfully")
             except Exception as e:
                 print(f"⚠️  Could not load model: {e}")
+                print("⚠️  Using fallback mode")
                 self.model = None
         else:
-            print("⚠️  Using fallback mode (no LLM)")
+            print("⚠️  llama-cpp-python not available, using fallback mode")
     
     def generate_report(self, json_file: str, output_file: Optional[str] = None) -> str:
         """Generate HTML report from analysis JSON"""
@@ -56,7 +58,7 @@ class LocalLLMReportGenerator:
         metadata = data.get('metadata', {})
         sections = data.get('sections', {})
         
-        # Try to load section JSONs if available
+        # Load section JSONs
         sections_dir = Path(json_file).parent / 'sections'
         if sections_dir.exists():
             print(f"Loading section JSONs from: {sections_dir}")
@@ -90,37 +92,48 @@ class LocalLLMReportGenerator:
                     section_data = json.load(f)
                     section_type = section_data.get('section_type', section_file.stem.split('_')[0])
                     sections[section_type] = section_data.get('data', section_data)
+                    print(f"  ✓ Loaded {section_type}")
             except Exception as e:
-                print(f"⚠️  Could not load {section_file.name}: {e}")
+                print(f"  ⚠️  Could not load {section_file.name}: {e}")
         
         return sections
     
     def _generate_insights(self, section_name: str, section_data: Dict[str, Any]) -> str:
-        """Generate AI insights for a section"""
+        """Generate AI insights using BIST-Financial-Qwen-7B"""
         
         if not self.model:
             return self._generate_fallback_insights(section_name, section_data)
         
-        # Create prompt
-        prompt = f"""Analyze this {section_name} data and provide 2-3 key insights:
+        # Create financial analysis prompt
+        data_summary = json.dumps(section_data, indent=2)[:1000]
+        
+        prompt = f"""Analyze this {section_name} financial data and provide 3 key insights:
 
-{json.dumps(section_data, indent=2)[:500]}
+{data_summary}
 
-Insights:"""
+Provide concise, actionable insights in bullet points."""
         
         try:
-            response = self.model(
-                prompt,
-                max_tokens=200,
-                temperature=0.7,
-                stop=["###", "\n\n\n"]
+            response = self.model.create_chat_completion(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a financial analyst providing clear, data-driven insights."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                max_tokens=300,
+                temperature=0.7
             )
             
-            insights = response['choices'][0]['text'].strip()
-            return insights or self._generate_fallback_insights(section_name, section_data)
+            insights = response['choices'][0]['message']['content'].strip()
+            return insights if insights else self._generate_fallback_insights(section_name, section_data)
             
         except Exception as e:
-            print(f"⚠️  LLM generation failed: {e}")
+            print(f"  ⚠️  LLM generation failed for {section_name}: {e}")
             return self._generate_fallback_insights(section_name, section_data)
     
     def _generate_fallback_insights(self, section_name: str, section_data: Dict[str, Any]) -> str:
@@ -131,7 +144,8 @@ Insights:"""
         if section_name == 'news':
             count = section_data.get('article_count', 0)
             themes = section_data.get('key_themes', [])
-            insights.append(f"• Analyzed {count} news articles")
+            sentiment = section_data.get('sentiment', 'NEUTRAL')
+            insights.append(f"• Analyzed {count} news articles with {sentiment} sentiment")
             if themes:
                 insights.append(f"• Key themes: {', '.join(themes[:3])}")
         
@@ -140,17 +154,67 @@ Insights:"""
             buy = section_data.get('buy_signals', 0)
             sell = section_data.get('sell_signals', 0)
             insights.append(f"• Technical bias: {bias}")
-            insights.append(f"• Signals: {buy} BUY vs {sell} SELL")
+            insights.append(f"• Signal ratio: {buy} BUY vs {sell} SELL")
+            if buy > sell * 1.5:
+                insights.append(f"• Strong bullish momentum detected")
         
         elif section_name == 'economic':
             status = section_data.get('overall_status', 'MODERATE')
             insights.append(f"• Economic environment: {status}")
+            if 'inflation_trend' in section_data:
+                insights.append(f"• Inflation trend: {section_data['inflation_trend']}")
+        
+        elif section_name == 'cot':
+            positioning = section_data.get('net_positioning', 'NEUTRAL')
+            change = section_data.get('positioning_change', 'N/A')
+            insights.append(f"• Net positioning: {positioning} ({change})")
+            insights.append(f"• Institutional sentiment: {section_data.get('institutional_sentiment', 'N/A')}")
         
         elif section_name == 'correlations':
             relationships = section_data.get('key_relationships', {})
             strong = [k for k, v in relationships.items() if v.get('strength') == 'STRONG']
             if strong:
-                insights.append(f"• Strong correlations found in: {', '.join(strong[:2])}")
+                insights.append(f"• Strong correlations: {', '.join(strong[:2])}")
+        
+        elif section_name == 'structure':
+            trend = section_data.get('trend', 'NEUTRAL')
+            insights.append(f"• Market structure: {trend}")
+            support = section_data.get('support_levels', [])
+            if support:
+                insights.append(f"• Key support: {support[0]}")
+        
+        elif section_name == 'seasonality':
+            bias = section_data.get('seasonal_bias', 'NEUTRAL')
+            perf = section_data.get('historical_performance', 'N/A')
+            insights.append(f"• Seasonal bias: {bias}")
+            insights.append(f"• Historical performance: {perf}")
+        
+        elif section_name == 'volume':
+            trend = section_data.get('volume_trend', 'NEUTRAL')
+            profile = section_data.get('volume_profile', 'NEUTRAL')
+            insights.append(f"• Volume trend: {trend}")
+            insights.append(f"• Profile: {profile}")
+        
+        elif section_name == 'hf_methods':
+            sentiment = section_data.get('sentiment_score', 0.5)
+            forecast = section_data.get('forecast_direction', 'NEUTRAL')
+            insights.append(f"• AI sentiment score: {sentiment:.2f}")
+            insights.append(f"• Forecast direction: {forecast}")
+        
+        elif section_name == 'synthesis':
+            outlook = section_data.get('overall_outlook', 'NEUTRAL')
+            confidence = section_data.get('confidence', 0.5)
+            insights.append(f"• Overall outlook: {outlook} (confidence: {confidence:.0%})")
+            factors = section_data.get('key_factors', [])
+            if factors:
+                insights.append(f"• Key factors: {factors[0]}")
+        
+        elif section_name == 'executive_summary':
+            sentiment = section_data.get('sentiment', {})
+            insights.append(f"• Overall: {sentiment.get('overall', 'N/A')}")
+            findings = section_data.get('key_findings', [])
+            if findings:
+                insights.append(f"• {findings[0]}")
         
         if not insights:
             insights.append(f"• {section_name.title()} analysis completed")
@@ -169,7 +233,7 @@ Insights:"""
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{event_name} - Analysis Report</title>
+    <title>{event_name} - AI Analysis Report</title>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
@@ -177,6 +241,7 @@ Insights:"""
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             padding: 20px;
             color: #2d3748;
+            line-height: 1.6;
         }}
         .container {{
             max-width: 1200px;
@@ -212,6 +277,14 @@ Insights:"""
             align-items: center;
             gap: 10px;
         }}
+        .ai-badge {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.6em;
+            font-weight: bold;
+        }}
         .insights {{
             background: white;
             padding: 20px;
@@ -219,16 +292,6 @@ Insights:"""
             margin: 15px 0;
             line-height: 1.8;
             white-space: pre-line;
-        }}
-        .stat {{
-            display: inline-block;
-            background: #667eea;
-            color: white;
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 0.9em;
-            margin: 5px;
-            font-weight: 600;
         }}
         .data-grid {{
             display: grid;
@@ -270,31 +333,29 @@ Insights:"""
         <div class="meta">
             <strong>Date:</strong> {date}<br>
             <strong>Generated:</strong> {timestamp[:19].replace('T', ' ')}<br>
+            <strong>AI Model:</strong> BIST-Financial-Qwen-7B<br>
             <strong>Sections:</strong> {len(sections)}
         </div>
 """
         
-        # Add executive summary if available
-        exec_summary = sections.get('executive_summary', {})
-        if exec_summary:
-            html += self._render_executive_summary(exec_summary)
+        # Executive summary first
+        if 'executive_summary' in sections:
+            html += self._render_section('executive_summary', sections['executive_summary'], True)
         
-        # Render each section
-        section_order = ['news', 'indicators', 'cot', 'economic', 'correlations', 
-                        'structure', 'seasonality', 'volume', 'hf_methods', 'synthesis']
+        # Render sections in order
+        section_order = [
+            'news', 'indicators', 'cot', 'economic', 
+            'correlations', 'structure', 'seasonality', 'volume',
+            'hf_methods', 'synthesis'
+        ]
         
         for section_name in section_order:
             if section_name in sections:
                 html += self._render_section(section_name, sections[section_name])
         
-        # Render any remaining sections
-        for section_name, section_data in sections.items():
-            if section_name not in section_order and section_name != 'executive_summary':
-                html += self._render_section(section_name, section_data)
-        
         html += f"""
         <div class="footer">
-            Generated by Local LLM Report Generator<br>
+            Powered by BIST-Financial-Qwen-7B<br>
             {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
         </div>
     </div>
@@ -304,58 +365,16 @@ Insights:"""
         
         return html
     
-    def _render_executive_summary(self, summary: Dict[str, Any]) -> str:
-        """Render executive summary section"""
+    def _render_section(self, section_name: str, section_data: Dict[str, Any], is_summary: bool = False) -> str:
+        """Render a section with AI insights"""
         
-        html = """
-        <div class="section">
-            <div class="section-title">⭐ Executive Summary</div>
-            <div class="insights">
-"""
-        
-        if summary.get('market_overview'):
-            html += f"<strong>Overview:</strong> {summary['market_overview']}<br><br>"
-        
-        sentiment = summary.get('sentiment', {})
-        html += f"""
-            <div class="data-grid">
-                <div class="data-card">
-                    <div class="data-label">Overall Sentiment</div>
-                    <div class="data-value">{sentiment.get('overall', 'NEUTRAL')}</div>
-                </div>
-                <div class="data-card">
-                    <div class="data-label">Confidence</div>
-                    <div class="data-value">{sentiment.get('confidence', 0.5):.0%}</div>
-                </div>
-            </div>
-"""
-        
-        findings = summary.get('key_findings', [])
-        if findings:
-            html += "<strong>Key Findings:</strong><ul>"
-            for finding in findings[:5]:
-                if isinstance(finding, dict):
-                    html += f"<li>{finding.get('finding', str(finding))}</li>"
-                else:
-                    html += f"<li>{finding}</li>"
-            html += "</ul>"
-        
-        html += """
-            </div>
-        </div>
-"""
-        return html
-    
-    def _render_section(self, section_name: str, section_data: Dict[str, Any]) -> str:
-        """Render a section"""
-        
-        # Get actual data if wrapped in metadata
-        if 'data' in section_data and isinstance(section_data['data'], dict):
+        if 'data' in section_data:
             actual_data = section_data['data']
         else:
             actual_data = section_data
         
         icons = {
+            'executive_summary': '⭐',
             'news': '📰',
             'indicators': '📈',
             'cot': '📊',
@@ -373,15 +392,20 @@ Insights:"""
         
         html = f"""
         <div class="section">
-            <div class="section-title">{icon} {title}</div>
+            <div class="section-title">
+                {icon} {title}
+                <span class="ai-badge">AI</span>
+            </div>
 """
         
-        # Generate insights
+        # Generate AI insights
+        print(f"  🤖 Generating insights for {section_name}...")
         insights = self._generate_insights(section_name, actual_data)
         html += f'<div class="insights">{insights}</div>'
         
-        # Add key metrics
-        html += self._render_metrics(section_name, actual_data)
+        # Add metrics
+        if not is_summary:
+            html += self._render_metrics(section_name, actual_data)
         
         html += """
         </div>
@@ -389,7 +413,7 @@ Insights:"""
         return html
     
     def _render_metrics(self, section_name: str, data: Dict[str, Any]) -> str:
-        """Render key metrics for a section"""
+        """Render key metrics"""
         
         html = '<div class="data-grid">'
         
@@ -400,28 +424,20 @@ Insights:"""
                     <div class="data-value">{data.get('article_count', 0)}</div>
                 </div>
                 <div class="data-card">
-                    <div class="data-label">Sources</div>
-                    <div class="data-value">{len(data.get('sources', []))}</div>
+                    <div class="data-label">Sentiment</div>
+                    <div class="data-value">{data.get('sentiment', 'N/A')}</div>
                 </div>
             """
         
         elif section_name == 'indicators':
             html += f"""
                 <div class="data-card">
-                    <div class="data-label">Overall Bias</div>
-                    <div class="data-value">{data.get('overall_bias', 'NEUTRAL')}</div>
+                    <div class="data-label">Bias</div>
+                    <div class="data-value">{data.get('overall_bias', 'N/A')}</div>
                 </div>
                 <div class="data-card">
-                    <div class="data-label">Symbols Analyzed</div>
-                    <div class="data-value">{data.get('symbols_analyzed', 0)}</div>
-                </div>
-            """
-        
-        elif section_name == 'economic':
-            html += f"""
-                <div class="data-card">
-                    <div class="data-label">Economic Status</div>
-                    <div class="data-value">{data.get('overall_status', 'MODERATE')}</div>
+                    <div class="data-label">Buy/Sell</div>
+                    <div class="data-value">{data.get('buy_signals', 0)}/{data.get('sell_signals', 0)}</div>
                 </div>
             """
         
@@ -433,17 +449,16 @@ def main():
     """Main entry point"""
     
     if len(sys.argv) < 2:
-        print("Usage: python local_llm_report_generator.py <json_file> [model_path]")
+        print("Usage: python local_llm_report_generator.py <json_file>")
         sys.exit(1)
     
     json_file = sys.argv[1]
-    model_path = sys.argv[2] if len(sys.argv) > 2 else None
     
     if not os.path.exists(json_file):
         print(f"Error: File not found: {json_file}")
         sys.exit(1)
     
-    generator = LocalLLMReportGenerator(model_path=model_path)
+    generator = LocalLLMReportGenerator()
     output_file = generator.generate_report(json_file)
     
     print(f"\n✓ Success! Open: {output_file}")
