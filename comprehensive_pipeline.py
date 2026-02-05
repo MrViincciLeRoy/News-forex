@@ -1,6 +1,6 @@
 """
 Comprehensive Analysis Pipeline - FIXED VERSION
-Properly handles FRED API keys and other secrets
+EconomicIndicatorIntegration reads FRED keys from environment directly
 """
 
 import pandas as pd
@@ -202,7 +202,7 @@ class MemoryAwareHFLoader:
 
 
 class ComprehensiveAnalysisPipeline:
-    """Comprehensive pipeline with FIXED API key handling"""
+    """Comprehensive pipeline - EconomicIndicatorIntegration reads env vars directly"""
     
     def __init__(self, output_dir='pipeline_output', enable_hf=True, enable_viz=True):
         self.output_dir = output_dir
@@ -222,7 +222,7 @@ class ComprehensiveAnalysisPipeline:
         print(f"Visualizations: {'Enabled' if enable_viz else 'Disabled'}")
         print("="*80)
         
-        # **FIX: Check API keys BEFORE initializing modules**
+        # Check API keys
         self._validate_api_keys()
         
         print("\nInitializing core modules...")
@@ -233,10 +233,10 @@ class ComprehensiveAnalysisPipeline:
         self.indicator_calc = SymbolIndicatorCalculator() if SymbolIndicatorCalculator else None
         self.corr_analyzer = CorrelationAnalyzer() if CorrelationAnalyzer else None
         
-        # **FIX: Pass FRED key explicitly to EconomicIndicatorIntegration**
-        fred_key = os.environ.get('FRED_API_KEY', '')
+        # **FIX: EconomicIndicatorIntegration reads FRED keys from environment directly**
+        # No need to pass fred_key parameter
         if EconomicIndicatorIntegration:
-            self.econ_indicators = EconomicIndicatorIntegration(fred_key=fred_key)
+            self.econ_indicators = EconomicIndicatorIntegration()
         else:
             self.econ_indicators = None
         
@@ -258,7 +258,7 @@ class ComprehensiveAnalysisPipeline:
         print("="*80 + "\n")
     
     def _validate_api_keys(self):
-        """**FIX: Validate API keys and show clear status**"""
+        """Validate API keys and show clear status"""
         print("\nAPI Key Configuration:")
         print("-" * 80)
         
@@ -379,7 +379,7 @@ class ComprehensiveAnalysisPipeline:
             corr_results = self._analyze_correlations(date, symbols[:5])
             results['sections']['correlations'] = corr_results
         
-        # 5. ECONOMIC - **FIX: Better error handling**
+        # 5. ECONOMIC
         if self.econ_indicators:
             print("\n💹 SECTION 5: ECONOMIC INDICATORS")
             print("-" * 80)
@@ -535,7 +535,7 @@ class ComprehensiveAnalysisPipeline:
         return results
     
     def _analyze_economic(self, date):
-        """**FIX: Better error handling for FRED API key issues**"""
+        """Better error handling for FRED API key issues"""
         if not self.econ_indicators:
             print("  ⊘ Economic indicators module not loaded")
             return None
