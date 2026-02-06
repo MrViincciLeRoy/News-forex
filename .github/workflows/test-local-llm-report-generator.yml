@@ -395,7 +395,7 @@ jobs:
     
     - name: Validate HTML quality
       run: |
-        HTML_FILE=$(find quality_test -name "*_ai_report.html" -type f | head -1)
+        HTML_FILE=$(find quality_test -name "*.html" -type f | head -1)
         
         python -c "
         from bs4 import BeautifulSoup
