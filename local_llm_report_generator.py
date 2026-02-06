@@ -1,6 +1,7 @@
 """
 Enhanced Local LLM Report Generator
 Comprehensive HTML reports with detailed data, images, and analytics
+FIXED: Executive summary Key Findings and Recommendations are always visible in PDF
 """
 
 import json
@@ -868,7 +869,18 @@ Insights (bullet points):"""
                 <div class="metric-subtext">High confidence</div>
             </div>
         </div>
+"""
         
+        if 'market_overview' in data:
+            html += f"""
+        <div class="alert alert-info mt-4">
+            <h5><i class="bi bi-info-circle-fill"></i> Market Overview</h5>
+            <p class="mb-0">{data['market_overview']}</p>
+        </div>
+"""
+        
+        # FIXED: Key Findings and Recommendations are now always visible (not collapsed)
+        html += """
         <div class="row mt-4">
             <div class="col-md-6">
                 <h4 class="mb-3"><i class="bi bi-check-circle-fill text-success"></i> Key Findings</h4>
@@ -890,14 +902,6 @@ Insights (bullet points):"""
         html += """
                 </ul>
             </div>
-        </div>
-"""
-        
-        if 'market_overview' in data:
-            html += f"""
-        <div class="alert alert-info mt-4">
-            <h5><i class="bi bi-info-circle-fill"></i> Market Overview</h5>
-            <p class="mb-0">{data['market_overview']}</p>
         </div>
 """
         
@@ -1446,7 +1450,7 @@ Insights (bullet points):"""
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python local_llm_report_generator_enhanced.py <json_file>")
+        print("Usage: python local_llm_report_generator_fixed.py <json_file>")
         sys.exit(1)
     
     json_file = sys.argv[1]
