@@ -636,6 +636,14 @@ Insights (bullet points):"""
             .section {{
                 page-break-inside: avoid;
             }}
+            /* Keep accordions expanded in PDF */
+            .accordion-collapse {{
+                display: block !important;
+                height: auto !important;
+            }}
+            .accordion-button::after {{
+                display: none;
+            }}
         }}
     </style>
 </head>
@@ -794,12 +802,12 @@ Insights (bullet points):"""
                 <div class="accordion mt-4">
                     <div class="accordion-item">
                         <h2 class="accordion-header">
-                            <button class="accordion-button collapsed" type="button" 
+                            <button class="accordion-button" type="button" 
                                     data-bs-toggle="collapse" data-bs-target="#raw-{key}">
-                                <i class="bi bi-code-square"></i>&nbsp; View Raw Data
+                                <i class="bi bi-code-square"></i>&nbsp; Raw Data
                             </button>
                         </h2>
-                        <div id="raw-{key}" class="accordion-collapse collapse">
+                        <div id="raw-{key}" class="accordion-collapse collapse show">
                             <div class="accordion-body">
                                 <pre class="raw-data"><code>{json.dumps(actual_data, indent=2)}</code></pre>
                             </div>
