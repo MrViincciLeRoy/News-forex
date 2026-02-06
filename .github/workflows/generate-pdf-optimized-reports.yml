@@ -29,7 +29,6 @@ jobs:
     
     - name: Install dependencies
       run: |
-        # PDF conversion dependencies
         sudo apt-get update
         sudo apt-get install -y \
           libpango-1.0-0 \
@@ -39,9 +38,8 @@ jobs:
           libgdk-pixbuf2.0-0 \
           shared-mime-info
         
-        # Python packages
         pip install weasyprint
-        pip install pandas numpy
+        pip install pandas numpy matplotlib
         pip install -r requirements.txt || echo "requirements.txt not found"
     
     - name: Download pipeline artifacts (if triggered by workflow)
@@ -55,6 +53,7 @@ jobs:
         merge-multiple: true
     
     - name: Find or Create JSON file
+      id: find-json
       run: |
         echo "================================"
         echo "FINDING OR GENERATING JSON DATA"
@@ -62,7 +61,6 @@ jobs:
         
         FORCE="${FORCE_GENERATE:-false}"
         
-        # Check if user provided a specific file
         if [ -n "${{ github.event.inputs.json_file }}" ]; then
           JSON_FILE="${{ github.event.inputs.json_file }}"
           echo "📁 User specified: $JSON_FILE"
@@ -72,7 +70,6 @@ jobs:
             exit 1
           fi
         else
-          # Look for existing JSON files
           echo "🔍 Searching for comprehensive_*.json files..."
           JSON_FILE=$(find . -name "comprehensive_*.json" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
           
@@ -88,7 +85,6 @@ jobs:
             echo "🚀 Running comprehensive pipeline to generate data..."
             echo ""
             
-            # Run the comprehensive pipeline
             python comprehensive_pipeline.py 2>&1 | tee pipeline_run.log
             
             PIPELINE_EXIT=$?
@@ -101,7 +97,6 @@ jobs:
               exit 1
             fi
             
-            # Find the newly generated JSON
             echo ""
             echo "🔍 Looking for generated JSON file..."
             JSON_FILE=$(find . -name "comprehensive_*.json" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
@@ -118,13 +113,11 @@ jobs:
           fi
         fi
         
-        # Verify the file exists and is valid JSON
         if [ ! -f "$JSON_FILE" ]; then
           echo "❌ ERROR: JSON file not found: $JSON_FILE"
           exit 1
         fi
         
-        # Quick JSON validation
         if ! python -c "import json; json.load(open('$JSON_FILE'))" 2>/dev/null; then
           echo "❌ ERROR: Invalid JSON file: $JSON_FILE"
           exit 1
@@ -140,34 +133,51 @@ jobs:
         echo "================================"
         
         echo "json_file=$JSON_FILE" >> $GITHUB_OUTPUT
-    - name: Generate AI-powered HTML report with Local LLM
+    
+    - name: Generate AI-powered HTML report
       run: |
         echo "================================"
         echo "GENERATING AI-POWERED REPORT"
-        echo "Using: BIST-Financial-Qwen-7B"
-        echo "Mode: Local LLM (No API needed)"
         echo "================================"
-        python local_llm_report_generator.py "${{ steps.find-json.outputs.json_file }}"
-  
-    - name: Find html
-      run: |
-        # Look for PDF-optimized HTML first
-        HTML_FILE=$(find . -name "*_pdf_optimized.html" -type f | head -1)
         
-        # Fall back to any AI report HTML
-        if [ -z "$HTML_FILE" ]; then
-          HTML_FILE=$(find . -name "*_ai_report.html" -type f | head -1)
+        JSON_FILE="${{ steps.find-json.outputs.json_file }}"
+        
+        if [ -z "$JSON_FILE" ]; then
+          echo "❌ No JSON file from previous step"
+          exit 1
         fi
+        
+        echo "Input: $JSON_FILE"
+        
+        if [ -f local_llm_report_generator.py ]; then
+          echo "✓ Using local_llm_report_generator.py"
+          python local_llm_report_generator.py "$JSON_FILE"
+        elif [ -f local_llm_report_generator_enhanced.py ]; then
+          echo "✓ Using local_llm_report_generator_enhanced.py"
+          python local_llm_report_generator_enhanced.py "$JSON_FILE"
+        else
+          echo "❌ No report generator found!"
+          echo "Available Python files:"
+          ls -la *.py | head -10
+          exit 1
+        fi
+    
+    - name: Find HTML report
+      id: find-html
+      run: |
+        HTML_FILE=$(find . -name "*_enhanced_report.html" -o -name "*_ai_report.html" -o -name "*_pdf_optimized.html" | head -1)
         
         if [ -z "$HTML_FILE" ]; then
           echo "❌ No HTML file generated"
+          echo "Looking for any HTML files:"
+          find . -name "*.html" -type f
           exit 1
         fi
         
         echo "html_file=$HTML_FILE" >> $GITHUB_OUTPUT
         echo "✓ Found HTML: $HTML_FILE"
     
-    - name: Convert HTML to PDF with WeasyPrint
+    - name: Convert HTML to PDF
       run: |
         echo "================================"
         echo "CONVERTING TO PDF"
@@ -176,48 +186,45 @@ jobs:
         HTML_FILE="${{ steps.find-html.outputs.html_file }}"
         OUTPUT_PDF="${HTML_FILE%.html}.pdf"
         
-        if [ -f html_to_pdf.py ]; then
-          python html_to_pdf.py "$HTML_FILE" "$OUTPUT_PDF" --method weasyprint
-        else
-          echo "Using WeasyPrint directly..."
-          python -c "
-        from weasyprint import HTML, CSS
+        echo "Input HTML: $HTML_FILE"
+        echo "Output PDF: $OUTPUT_PDF"
         
-        html_file = '$HTML_FILE'
-        pdf_file = '$OUTPUT_PDF'
-        
-        # Additional CSS for PDF
-        pdf_css = CSS(string='''
-            @page {
-                size: A4;
-                margin: 2cm 1.5cm;
-            }
-            
-            .section {
-                page-break-inside: avoid;
-            }
-            
-            table {
-                page-break-inside: avoid;
-            }
-        ''')
-        
-        HTML(filename=html_file).write_pdf(
-            pdf_file,
-            stylesheets=[pdf_css],
-            optimize_images=True,
-            jpeg_quality=85
-        )
-        
-        print(f'✓ PDF generated: {pdf_file}')
-          "
-        fi
+        python -c "
+from weasyprint import HTML, CSS
+
+html_file = '$HTML_FILE'
+pdf_file = '$OUTPUT_PDF'
+
+pdf_css = CSS(string='''
+    @page {
+        size: A4;
+        margin: 2cm 1.5cm;
+    }
+    
+    .section {
+        page-break-inside: avoid;
+    }
+    
+    table {
+        page-break-inside: avoid;
+    }
+''')
+
+HTML(filename=html_file).write_pdf(
+    pdf_file,
+    stylesheets=[pdf_css],
+    optimize_images=True,
+    jpeg_quality=85
+)
+
+print(f'✓ PDF generated: {pdf_file}')
+        "
         
         echo "pdf_file=$OUTPUT_PDF" >> $GITHUB_OUTPUT
     
     - name: Verify PDF quality
       run: |
-        PDF_FILE=$(find . -name "*_pdf_optimized.pdf" -o -name "*_ai_report.pdf" | head -1)
+        PDF_FILE=$(find . -name "*.pdf" -type f | head -1)
         
         if [ ! -f "$PDF_FILE" ]; then
           echo "❌ PDF file not found"
@@ -232,48 +239,36 @@ jobs:
         echo "PDF QUALITY CHECK"
         echo "================================"
         echo "File: $PDF_FILE"
-        echo "Size: $SIZE bytes"
-        echo "      $SIZE_KB KB"
-        echo "      $SIZE_MB MB"
+        echo "Size: $SIZE_KB KB ($SIZE_MB MB)"
         echo ""
         
-        # Basic quality checks
-        if [ $SIZE -lt 5000 ]; then
-          echo "⚠️  WARNING: PDF file is very small ($SIZE bytes)"
-          echo "This may indicate rendering issues"
-        elif [ $SIZE -lt 50000 ]; then
-          echo "✓ PDF size reasonable for simple content"
-        else
-          echo "✓ PDF size looks good for comprehensive report"
-        fi
-        
-        # Check if file is valid PDF
         if file "$PDF_FILE" | grep -q "PDF"; then
-          echo "✓ File is valid PDF format"
+          echo "✓ Valid PDF format"
         else
-          echo "❌ File may not be valid PDF"
+          echo "❌ Invalid PDF"
           exit 1
         fi
     
     - name: Upload HTML and PDF reports
       uses: actions/upload-artifact@v4
       with:
-        name: pdf-optimized-reports-${{ github.run_number }}
+        name: pdf-reports-${{ github.run_number }}
         path: |
+          **/*_enhanced_report.html
+          **/*_enhanced_report.pdf
           **/*_pdf_optimized.html
           **/*_pdf_optimized.pdf
           **/*_ai_report.html
           **/*_ai_report.pdf
         retention-days: 90
     
-    - name: Upload input data
-      if: always()
+    - name: Upload visualizations
       uses: actions/upload-artifact@v4
       with:
-        name: input-data-${{ github.run_number }}
+        name: visualizations-${{ github.run_number }}
         path: |
-          ${{ steps.find-json.outputs.json_file }}
-        retention-days: 30
+          **/visualizations/*.png
+        retention-days: 90
     
     - name: Display summary
       if: success()
@@ -285,16 +280,11 @@ jobs:
         echo "📊 Input JSON: ${{ steps.find-json.outputs.json_file }}"
         echo "🌐 HTML Report: ${{ steps.find-html.outputs.html_file }}"
         echo ""
-        echo "📄 PDF Reports:"
-        find . -name "*_pdf_optimized.pdf" -o -name "*_ai_report.pdf" | while read pdf; do
-          SIZE=$(du -h "$pdf" | cut -f1)
-          echo "  - $pdf ($SIZE)"
-        done
+        echo "📄 Generated files:"
+        find . -name "*.html" -o -name "*.pdf" | grep -E "(report|enhanced|optimized)"
         echo ""
         echo "📥 Download from: Actions > This Run > Artifacts"
-        echo ""
         echo "✅ Generation complete!"
-        echo "================================"
     
     - name: Display failure info
       if: failure()
@@ -303,13 +293,10 @@ jobs:
         echo "❌ WORKFLOW FAILED"
         echo "================================"
         echo ""
-        echo "Check the logs above for details."
+        echo "Troubleshooting:"
+        echo "1. Check if report generator exists"
+        echo "2. Verify JSON file was created"
+        echo "3. Check for Python errors above"
         echo ""
-        echo "Common issues:"
-        echo "1. Missing JSON data file"
-        echo "2. WeasyPrint rendering errors"
-        echo "3. Invalid JSON structure"
-        echo "4. CSS/HTML formatting issues"
-        echo ""
-        echo "Generated files:"
-        find . -name "*.json" -o -name "*.html" -o -name "*.pdf" | head -20
+        echo "Available files:"
+        find . -name "*.py" -o -name "*.json" -o -name "*.html" | head -20
