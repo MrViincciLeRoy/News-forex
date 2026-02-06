@@ -39,7 +39,7 @@ jobs:
           shared-mime-info
         
         pip install weasyprint
-        pip install pandas numpy matplotlib
+        pip install pandas numpy matplotlib huggingface-hub
         pip install -r requirements.txt || echo "requirements.txt not found"
     
     - name: Download pipeline artifacts
