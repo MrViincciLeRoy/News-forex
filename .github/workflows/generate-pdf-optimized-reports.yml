@@ -42,7 +42,7 @@ jobs:
         pip install pandas numpy matplotlib
         pip install -r requirements.txt || echo "requirements.txt not found"
     
-    - name: Download pipeline artifacts (if triggered by workflow)
+    - name: Download pipeline artifacts
       if: github.event_name == 'workflow_run'
       uses: actions/download-artifact@v4
       continue-on-error: true
@@ -55,35 +55,34 @@ jobs:
     - name: Find or Create JSON file
       id: find-json
       run: |
-        echo "================================"
+        echo "========================================"
         echo "FINDING OR GENERATING JSON DATA"
-        echo "================================"
+        echo "========================================"
         
         FORCE="${FORCE_GENERATE:-false}"
         
         if [ -n "${{ github.event.inputs.json_file }}" ]; then
           JSON_FILE="${{ github.event.inputs.json_file }}"
-          echo "📁 User specified: $JSON_FILE"
+          echo "User specified: $JSON_FILE"
           
           if [ ! -f "$JSON_FILE" ]; then
-            echo "❌ ERROR: Specified file not found: $JSON_FILE"
+            echo "ERROR: Specified file not found: $JSON_FILE"
             exit 1
           fi
         else
-          echo "🔍 Searching for comprehensive_*.json files..."
+          echo "Searching for comprehensive_*.json files..."
           JSON_FILE=$(find . -name "comprehensive_*.json" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
           
           if [ -n "$JSON_FILE" ] && [ "$FORCE" != "true" ]; then
-            echo "✅ Found existing JSON: $JSON_FILE"
+            echo "Found existing JSON: $JSON_FILE"
           else
             if [ "$FORCE" == "true" ]; then
-              echo "🔄 Force generation requested"
+              echo "Force generation requested"
             else
-              echo "⚠️  No JSON file found"
+              echo "No JSON file found"
             fi
             
-            echo "🚀 Running comprehensive pipeline to generate data..."
-            echo ""
+            echo "Running comprehensive pipeline..."
             
             python comprehensive_pipeline.py 2>&1 | tee pipeline_run.log
             
@@ -91,72 +90,72 @@ jobs:
             
             if [ $PIPELINE_EXIT -ne 0 ]; then
               echo ""
-              echo "❌ Pipeline failed with exit code: $PIPELINE_EXIT"
+              echo "Pipeline failed with exit code: $PIPELINE_EXIT"
               echo "Last 50 lines of output:"
               tail -50 pipeline_run.log
               exit 1
             fi
             
             echo ""
-            echo "🔍 Looking for generated JSON file..."
+            echo "Looking for generated JSON file..."
             JSON_FILE=$(find . -name "comprehensive_*.json" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
             
             if [ -z "$JSON_FILE" ]; then
-              echo "❌ ERROR: Pipeline completed but no JSON file was generated"
+              echo "ERROR: Pipeline completed but no JSON file was generated"
               echo ""
               echo "Generated files:"
               find . -name "*.json" -type f -mmin -10
               exit 1
             fi
             
-            echo "✅ Generated new data: $JSON_FILE"
+            echo "Generated new data: $JSON_FILE"
           fi
         fi
         
         if [ ! -f "$JSON_FILE" ]; then
-          echo "❌ ERROR: JSON file not found: $JSON_FILE"
+          echo "ERROR: JSON file not found: $JSON_FILE"
           exit 1
         fi
         
         if ! python -c "import json; json.load(open('$JSON_FILE'))" 2>/dev/null; then
-          echo "❌ ERROR: Invalid JSON file: $JSON_FILE"
+          echo "ERROR: Invalid JSON file: $JSON_FILE"
           exit 1
         fi
         
         FILE_SIZE=$(du -h "$JSON_FILE" | cut -f1)
         echo ""
-        echo "================================"
-        echo "✅ JSON FILE READY"
-        echo "================================"
+        echo "========================================"
+        echo "JSON FILE READY"
+        echo "========================================"
         echo "File: $JSON_FILE"
         echo "Size: $FILE_SIZE"
-        echo "================================"
+        echo "========================================"
         
         echo "json_file=$JSON_FILE" >> $GITHUB_OUTPUT
     
-    - name: Generate AI-powered HTML report
+    - name: Generate HTML report
       run: |
-        echo "================================"
-        echo "GENERATING AI-POWERED REPORT"
-        echo "================================"
+        echo "========================================"
+        echo "GENERATING HTML REPORT"
+        echo "========================================"
         
         JSON_FILE="${{ steps.find-json.outputs.json_file }}"
         
         if [ -z "$JSON_FILE" ]; then
-          echo "❌ No JSON file from previous step"
+          echo "ERROR: No JSON file from previous step"
           exit 1
         fi
         
         echo "Input: $JSON_FILE"
         
         if [ -f local_llm_report_generator.py ]; then
-          echo "✓ Using local_llm_report_generator.py"
+          echo "Using local_llm_report_generator.py"
           python local_llm_report_generator.py "$JSON_FILE"
         elif [ -f local_llm_report_generator_enhanced.py ]; then
-          echo "✓ Using local_llm_report_generator_enhanced.py"
+          echo "Using local_llm_report_generator_enhanced.py"
           python local_llm_report_generator_enhanced.py "$JSON_FILE"
         else
-          echo "❌ No report generator found!"
+          echo "ERROR: No report generator found"
           echo "Available Python files:"
           ls -la *.py | head -10
           exit 1
@@ -165,99 +164,64 @@ jobs:
     - name: Find HTML report
       id: find-html
       run: |
-        HTML_FILE=$(find . -name "*_enhanced_report.html" -o -name "*_ai_report.html" -o -name "*_pdf_optimized.html" | head -1)
+        HTML_FILE=$(find . -name "*_enhanced_report.html" -o -name "*_ai_report.html" -o -name "*_pdf_optimized.html" -type f | head -1)
         
         if [ -z "$HTML_FILE" ]; then
-          echo "❌ No HTML file generated"
+          echo "ERROR: No HTML file generated"
           echo "Looking for any HTML files:"
           find . -name "*.html" -type f
           exit 1
         fi
         
         echo "html_file=$HTML_FILE" >> $GITHUB_OUTPUT
-        echo "✓ Found HTML: $HTML_FILE"
+        echo "Found HTML: $HTML_FILE"
     
-    - name: Convert HTML to PDF
+    - name: Convert to PDF
       run: |
-        echo "================================"
+        echo "========================================"
         echo "CONVERTING TO PDF"
-        echo "================================"
+        echo "========================================"
         
         HTML_FILE="${{ steps.find-html.outputs.html_file }}"
         OUTPUT_PDF="${HTML_FILE%.html}.pdf"
         
-        echo "Input HTML: $HTML_FILE"
-        echo "Output PDF: $OUTPUT_PDF"
+        echo "Input: $HTML_FILE"
+        echo "Output: $OUTPUT_PDF"
         
-        python -c "
-from weasyprint import HTML, CSS
-
-html_file = '$HTML_FILE'
-pdf_file = '$OUTPUT_PDF'
-
-pdf_css = CSS(string='''
-    @page {
-        size: A4;
-        margin: 2cm 1.5cm;
-    }
+        python -c "from weasyprint import HTML, CSS; HTML(filename='$HTML_FILE').write_pdf('$OUTPUT_PDF', stylesheets=[CSS(string='@page { size: A4; margin: 2cm 1.5cm; } .section { page-break-inside: avoid; }')], optimize_images=True, jpeg_quality=85); print('PDF generated: $OUTPUT_PDF')"
     
-    .section {
-        page-break-inside: avoid;
-    }
-    
-    table {
-        page-break-inside: avoid;
-    }
-''')
-
-HTML(filename=html_file).write_pdf(
-    pdf_file,
-    stylesheets=[pdf_css],
-    optimize_images=True,
-    jpeg_quality=85
-)
-
-print(f'✓ PDF generated: {pdf_file}')
-        "
-        
-        echo "pdf_file=$OUTPUT_PDF" >> $GITHUB_OUTPUT
-    
-    - name: Verify PDF quality
+    - name: Verify PDF
       run: |
         PDF_FILE=$(find . -name "*.pdf" -type f | head -1)
         
         if [ ! -f "$PDF_FILE" ]; then
-          echo "❌ PDF file not found"
+          echo "ERROR: PDF file not found"
           exit 1
         fi
         
         SIZE=$(stat -c%s "$PDF_FILE")
         SIZE_KB=$(echo "scale=2; $SIZE/1024" | bc)
-        SIZE_MB=$(echo "scale=2; $SIZE/1024/1024" | bc)
         
-        echo "================================"
+        echo "========================================"
         echo "PDF QUALITY CHECK"
-        echo "================================"
+        echo "========================================"
         echo "File: $PDF_FILE"
-        echo "Size: $SIZE_KB KB ($SIZE_MB MB)"
-        echo ""
+        echo "Size: $SIZE_KB KB"
         
         if file "$PDF_FILE" | grep -q "PDF"; then
-          echo "✓ Valid PDF format"
+          echo "Valid PDF format"
         else
-          echo "❌ Invalid PDF"
+          echo "ERROR: Invalid PDF"
           exit 1
         fi
     
-    - name: Upload HTML and PDF reports
+    - name: Upload reports
       uses: actions/upload-artifact@v4
       with:
         name: pdf-reports-${{ github.run_number }}
         path: |
           **/*_enhanced_report.html
           **/*_enhanced_report.pdf
-          **/*_pdf_optimized.html
-          **/*_pdf_optimized.pdf
           **/*_ai_report.html
           **/*_ai_report.pdf
         retention-days: 90
@@ -273,30 +237,24 @@ print(f'✓ PDF generated: {pdf_file}')
     - name: Display summary
       if: success()
       run: |
-        echo "================================"
-        echo "PDF REPORT GENERATION COMPLETE"
-        echo "================================"
+        echo "========================================"
+        echo "REPORT GENERATION COMPLETE"
+        echo "========================================"
         echo ""
-        echo "📊 Input JSON: ${{ steps.find-json.outputs.json_file }}"
-        echo "🌐 HTML Report: ${{ steps.find-html.outputs.html_file }}"
+        echo "Input JSON: ${{ steps.find-json.outputs.json_file }}"
+        echo "HTML Report: ${{ steps.find-html.outputs.html_file }}"
         echo ""
-        echo "📄 Generated files:"
-        find . -name "*.html" -o -name "*.pdf" | grep -E "(report|enhanced|optimized)"
+        echo "Generated files:"
+        find . -name "*.html" -o -name "*.pdf" | grep -E "report"
         echo ""
-        echo "📥 Download from: Actions > This Run > Artifacts"
-        echo "✅ Generation complete!"
+        echo "Download from: Actions > Artifacts"
     
     - name: Display failure info
       if: failure()
       run: |
-        echo "================================"
-        echo "❌ WORKFLOW FAILED"
-        echo "================================"
-        echo ""
-        echo "Troubleshooting:"
-        echo "1. Check if report generator exists"
-        echo "2. Verify JSON file was created"
-        echo "3. Check for Python errors above"
+        echo "========================================"
+        echo "WORKFLOW FAILED"
+        echo "========================================"
         echo ""
         echo "Available files:"
         find . -name "*.py" -o -name "*.json" -o -name "*.html" | head -20
