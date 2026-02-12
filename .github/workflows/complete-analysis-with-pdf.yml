@@ -1,0 +1,355 @@
+name: Complete Analysis with PDF
+
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Analysis date (YYYY-MM-DD)'
+        required: true
+        default: '2024-11-01'
+      event_name:
+        description: 'Event name (e.g., Non-Farm Payrolls, FOMC, CPI)'
+        required: true
+        default: 'Non-Farm Payrolls'
+      symbols:
+        description: 'Symbols (comma-separated, e.g., GC,DX,ES)'
+        required: false
+        default: ''
+      max_articles:
+        description: 'Max news articles to fetch'
+        required: false
+        default: '20'
+  schedule:
+    # Run monthly on first Friday at 14:30 UTC (after NFP release)
+    - cron: '30 14 * * 5'
+
+jobs:
+  complete-analysis-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install all dependencies
+      run: |
+        echo "Installing Python packages..."
+        pip install reportlab
+        pip install pandas numpy matplotlib seaborn
+        pip install -r requirements.txt || echo "requirements.txt not found"
+        
+        echo ""
+        echo "✓ Dependencies installed"
+    
+    - name: Determine analysis parameters
+      id: params
+      run: |
+        if [ "${{ github.event_name }}" == "schedule" ]; then
+          # Scheduled run - use current date
+          DATE=$(date +%Y-%m-%d)
+          EVENT="Non-Farm Payrolls"
+          SYMBOLS="GC,DX,ES,TNX"
+          MAX_ARTICLES="25"
+        else
+          # Manual run - use inputs
+          DATE="${{ github.event.inputs.date }}"
+          EVENT="${{ github.event.inputs.event_name }}"
+          SYMBOLS="${{ github.event.inputs.symbols }}"
+          MAX_ARTICLES="${{ github.event.inputs.max_articles || '20' }}"
+        fi
+        
+        echo "date=$DATE" >> $GITHUB_OUTPUT
+        echo "event=$EVENT" >> $GITHUB_OUTPUT
+        echo "symbols=$SYMBOLS" >> $GITHUB_OUTPUT
+        echo "max_articles=$MAX_ARTICLES" >> $GITHUB_OUTPUT
+        
+        echo "================================"
+        echo "ANALYSIS PARAMETERS"
+        echo "================================"
+        echo "Date: $DATE"
+        echo "Event: $EVENT"
+        echo "Symbols: $SYMBOLS"
+        echo "Max Articles: $MAX_ARTICLES"
+        echo "================================"
+    
+    - name: Run comprehensive analysis pipeline
+      env:
+        ALPHA_VANTAGE_API_KEY_1: ${{ secrets.ALPHA_VANTAGE_API_KEY_1 }}
+        ALPHA_VANTAGE_API_KEY_2: ${{ secrets.ALPHA_VANTAGE_API_KEY_2 }}
+        ALPHA_VANTAGE_API_KEY_3: ${{ secrets.ALPHA_VANTAGE_API_KEY_3 }}
+        ALPHA_VANTAGE_API_KEY_4: ${{ secrets.ALPHA_VANTAGE_API_KEY_4 }}
+        ALPHA_VANTAGE_API_KEY_5: ${{ secrets.ALPHA_VANTAGE_API_KEY_5 }}
+        ALPHA_VANTAGE_API_KEY_6: ${{ secrets.ALPHA_VANTAGE_API_KEY_6 }}
+        FRED_API_KEY_1: ${{ secrets.FRED_API_KEY_1 }}
+        FRED_API_KEY_2: ${{ secrets.FRED_API_KEY_2 }}
+        FRED_API_KEY_3: ${{ secrets.FRED_API_KEY_3 }}
+        FRED_API_KEY_4: ${{ secrets.FRED_API_KEY_4 }}
+        FRED_API_KEY_5: ${{ secrets.FRED_API_KEY_5 }}
+        FRED_API_KEY_6: ${{ secrets.FRED_API_KEY_6 }}
+        SERP_API_KEY_1: ${{ secrets.SERP_API_KEY_1 }}
+      run: |
+        echo ""
+        echo "================================"
+        echo "STEP 1: COMPREHENSIVE ANALYSIS"
+        echo "================================"
+        echo ""
+        
+        SYMBOLS="${{ steps.params.outputs.symbols }}"
+        
+        python -c "
+        from comprehensive_pipeline import ComprehensiveAnalysisPipeline
+        import sys
+        
+        try:
+            pipeline = ComprehensiveAnalysisPipeline(
+                output_dir='complete_analysis_output',
+                enable_viz=True,
+                enable_hf=True,
+                max_articles=${{ steps.params.outputs.max_articles }}
+            )
+            
+            symbols_str = '$SYMBOLS'
+            symbols = None
+            if symbols_str:
+                symbols = [s.strip() for s in symbols_str.split(',') if s.strip()]
+            
+            results = pipeline.analyze(
+                date='${{ steps.params.outputs.date }}',
+                event_name='${{ steps.params.outputs.event }}',
+                symbols=symbols
+            )
+            
+            print(f'\n✅ Analysis complete: {results[\"report_file\"]}')
+            print(f'✅ Sections: {pipeline.sections_dir}')
+            print(f'✅ Visualizations: {pipeline.viz_dir}')
+            
+        except Exception as e:
+            print(f'\n❌ Analysis failed: {e}')
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+        "
+    
+    - name: Verify pipeline output
+      id: verify-pipeline
+      run: |
+        echo ""
+        echo "Verifying pipeline output..."
+        
+        # Find JSON
+        JSON_FILE=$(find complete_analysis_output -name "comprehensive_*.json" -type f | head -1)
+        
+        if [ -z "$JSON_FILE" ]; then
+          echo "❌ JSON file not found"
+          ls -la complete_analysis_output/
+          exit 1
+        fi
+        
+        echo "json_file=$JSON_FILE" >> $GITHUB_OUTPUT
+        echo "✓ JSON: $JSON_FILE"
+        
+        # Check visualizations
+        if [ -d complete_analysis_output/visualizations ]; then
+          VIZ_COUNT=$(ls complete_analysis_output/visualizations/*.png 2>/dev/null | wc -l)
+          echo "✓ Visualizations: $VIZ_COUNT images"
+        else
+          echo "ℹ️  No visualizations directory"
+        fi
+        
+        # Check sections
+        if [ -d complete_analysis_output/sections ]; then
+          SECTION_COUNT=$(ls complete_analysis_output/sections/*.json 2>/dev/null | wc -l)
+          echo "✓ Section JSONs: $SECTION_COUNT files"
+        fi
+    
+    - name: Generate PDF report
+      run: |
+        echo ""
+        echo "================================"
+        echo "STEP 2: PDF GENERATION"
+        echo "================================"
+        echo ""
+        
+        JSON_FILE="${{ steps.verify-pipeline.outputs.json_file }}"
+        
+        echo "Input: $JSON_FILE"
+        echo ""
+        
+        python direct_pdf_generator.py "$JSON_FILE"
+        
+        if [ $? -ne 0 ]; then
+          echo "❌ PDF generation failed"
+          exit 1
+        fi
+    
+    - name: Verify PDF output
+      id: verify-pdf
+      run: |
+        echo ""
+        echo "Verifying PDF output..."
+        
+        PDF_FILE=$(find . -name "*_report.pdf" -type f | head -1)
+        
+        if [ -z "$PDF_FILE" ]; then
+          echo "❌ PDF not found"
+          exit 1
+        fi
+        
+        echo "pdf_file=$PDF_FILE" >> $GITHUB_OUTPUT
+        
+        # Validate
+        SIZE=$(stat -c%s "$PDF_FILE")
+        SIZE_MB=$(echo "scale=2; $SIZE/1024/1024" | bc)
+        
+        echo "✓ PDF: $PDF_FILE"
+        echo "✓ Size: $SIZE_MB MB"
+        
+        if [ $SIZE -lt 10000 ]; then
+          echo "⚠️  Warning: PDF seems small"
+          exit 1
+        fi
+        
+        if ! file "$PDF_FILE" | grep -q "PDF"; then
+          echo "❌ Invalid PDF"
+          exit 1
+        fi
+        
+        echo "✓ Valid PDF format"
+    
+    - name: Create summary report
+      run: |
+        cat > summary.txt << EOF
+        ================================
+        ANALYSIS COMPLETE
+        ================================
+        
+        Parameters:
+          Date: ${{ steps.params.outputs.date }}
+          Event: ${{ steps.params.outputs.event }}
+          Symbols: ${{ steps.params.outputs.symbols }}
+          Articles: ${{ steps.params.outputs.max_articles }}
+        
+        Generated Files:
+          📊 JSON: ${{ steps.verify-pipeline.outputs.json_file }}
+          📄 PDF:  ${{ steps.verify-pdf.outputs.pdf_file }}
+        
+        Pipeline Output:
+          ✓ Comprehensive analysis data
+          ✓ Section breakdowns
+          ✓ Visualization charts
+          ✓ AI-powered insights
+          ✓ Direct PDF report
+        
+        Status: SUCCESS
+        Generated: $(date)
+        ================================
+        EOF
+        
+        cat summary.txt
+    
+    - name: Upload PDF report
+      uses: actions/upload-artifact@v4
+      with:
+        name: pdf-report-${{ steps.params.outputs.date }}-${{ github.run_number }}
+        path: |
+          **/*_report.pdf
+        retention-days: 90
+    
+    - name: Upload complete analysis
+      uses: actions/upload-artifact@v4
+      with:
+        name: complete-analysis-${{ steps.params.outputs.date }}-${{ github.run_number }}
+        path: |
+          complete_analysis_output/
+          summary.txt
+        retention-days: 90
+    
+    - name: Upload visualizations
+      uses: actions/upload-artifact@v4
+      with:
+        name: visualizations-${{ steps.params.outputs.date }}-${{ github.run_number }}
+        path: |
+          complete_analysis_output/visualizations/*.png
+        retention-days: 60
+    
+    - name: Display final summary
+      if: success()
+      run: |
+        echo ""
+        echo "================================"
+        echo "✅ COMPLETE PIPELINE SUCCESS"
+        echo "================================"
+        echo ""
+        echo "Analysis: ${{ steps.params.outputs.event }}"
+        echo "Date: ${{ steps.params.outputs.date }}"
+        echo ""
+        echo "Generated Files:"
+        echo "  📊 JSON Data: ${{ steps.verify-pipeline.outputs.json_file }}"
+        echo "  📄 PDF Report: ${{ steps.verify-pdf.outputs.pdf_file }}"
+        echo ""
+        
+        if [ -d complete_analysis_output/visualizations ]; then
+          IMG_COUNT=$(ls complete_analysis_output/visualizations/*.png 2>/dev/null | wc -l)
+          echo "  📈 Charts: $IMG_COUNT images"
+        fi
+        
+        if [ -d complete_analysis_output/sections ]; then
+          SECTION_COUNT=$(ls complete_analysis_output/sections/*.json 2>/dev/null | wc -l)
+          echo "  📁 Sections: $SECTION_COUNT JSON files"
+        fi
+        
+        echo ""
+        echo "📥 Download from: Actions > Artifacts"
+        echo ""
+        echo "Artifacts available:"
+        echo "  • pdf-report-... (Final PDF)"
+        echo "  • complete-analysis-... (All data)"
+        echo "  • visualizations-... (PNG charts)"
+        echo ""
+        echo "PDF Report includes:"
+        echo "  ✓ Cover page with metadata"
+        echo "  ✓ Executive summary"
+        echo "  ✓ 11 analysis sections"
+        echo "  ✓ AI-powered insights"
+        echo "  ✓ Data tables and metrics"
+        echo "  ✓ Embedded visualizations"
+        echo "  ✓ Proper structure and headers"
+        echo ""
+    
+    - name: Display failure info
+      if: failure()
+      run: |
+        echo "================================"
+        echo "❌ PIPELINE FAILED"
+        echo "================================"
+        echo ""
+        echo "Check the logs above for details."
+        echo ""
+        echo "Possible issues:"
+        echo "  • API keys not set or invalid"
+        echo "  • Network/API rate limits"
+        echo "  • Missing dependencies"
+        echo "  • Invalid input parameters"
+        echo ""
+        echo "Debug info:"
+        echo ""
+        echo "Files created:"
+        find . -name "*.json" -o -name "*.pdf" -o -name "*.png" | head -20
+        echo ""
+        echo "Directories:"
+        ls -la complete_analysis_output/ 2>/dev/null || echo "Output directory not found"
+    
+    - name: Notify on scheduled run
+      if: github.event_name == 'schedule' && success()
+      run: |
+        echo "📧 Scheduled analysis complete"
+        echo "Event: ${{ steps.params.outputs.event }}"
+        echo "Date: ${{ steps.params.outputs.date }}"
+        echo ""
+        echo "PDF report available in artifacts"
