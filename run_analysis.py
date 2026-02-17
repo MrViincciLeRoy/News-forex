@@ -6,9 +6,12 @@ Usage: python run_analysis.py --date 2024-11-01 --event "Non-Farm Payrolls" --ty
 import asyncio
 import argparse
 import sys
-import json
+import os
 from pathlib import Path
 from datetime import datetime
+
+# All analysis output goes into outputs/ relative to CWD
+os.environ.setdefault("ANALYSIS_OUTPUT_DIR", str(Path.cwd() / "outputs"))
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run Financial Analysis Pipeline")
@@ -24,38 +27,21 @@ async def run_pre(date, event, articles, symbols):
     from enhanced_report_generator import EnhancedReportGenerator
 
     print(f"\n🚀 Starting PRE-EVENT analysis: {event} ({date})")
-    
+
     analyzer = PreEventAnalyzer(
         event_date=date,
         event_name=event,
         symbols=symbols,
         max_articles=articles
     )
-    
+
     results = await analyzer.run_full_analysis()
-    
-    # Save to outputs/ for artifact upload
-    output_dir = Path("outputs")
-    output_dir.mkdir(exist_ok=True)
-    
-    # Copy section JSONs
-    analysis_dir = Path(f"/home/runner/pre_event_{results['analysis_id']}")
-    if analysis_dir.exists():
-        import shutil
-        shutil.copytree(str(analysis_dir), str(output_dir / results['analysis_id']), dirs_exist_ok=True)
-    
-    # Generate PDF
+
+    # Generate PDF into outputs/
     generator = EnhancedReportGenerator()
     pdf_path = generator.generate_pre_event_pdf(results)
-    
-    # Move PDF to outputs/
-    pdf_file = Path(pdf_path)
-    if pdf_file.exists():
-        import shutil
-        shutil.copy(str(pdf_file), str(output_dir / pdf_file.name))
-        print(f"✓ PDF saved: outputs/{pdf_file.name}")
-    
-    # Print summary
+
+    print(f"✓ PDF: {pdf_path}")
     print_summary(results)
     return results
 
@@ -64,51 +50,44 @@ async def run_post(date, event, articles, symbols):
     from enhanced_report_generator import EnhancedReportGenerator
 
     print(f"\n🚀 Starting POST-EVENT analysis: {event} ({date})")
-    
+
     analyzer = PostEventAnalyzer(
         event_date=date,
         event_name=event,
         symbols=symbols,
         max_articles=articles
     )
-    
+
     results = await analyzer.run_full_analysis()
-    
-    output_dir = Path("outputs")
-    output_dir.mkdir(exist_ok=True)
-    
+
     generator = EnhancedReportGenerator()
     pdf_path = generator.generate_post_event_pdf(results)
-    
-    pdf_file = Path(pdf_path)
-    if pdf_file.exists():
-        import shutil
-        shutil.copy(str(pdf_file), str(output_dir / pdf_file.name))
-        print(f"✓ PDF saved: outputs/{pdf_file.name}")
-    
+
+    print(f"✓ PDF: {pdf_path}")
     print_summary(results)
     return results
 
 def print_summary(results):
     sections = results.get("sections", {})
+    exec_summary = sections.get("executive", {})
+
     print(f"\n{'='*60}")
     print(f"✅ Analysis Complete")
-    print(f"   ID: {results['analysis_id']}")
-    print(f"   Sections: {len(sections)}")
-    
-    # Executive summary highlights
-    exec_summary = sections.get("executive", {})
+    print(f"   ID:        {results['analysis_id']}")
+    print(f"   Sections:  {len(sections)}")
     if exec_summary:
-        print(f"   Outlook: {exec_summary.get('overall_outlook', 'N/A')}")
-        print(f"   Confidence: {exec_summary.get('confidence_level', 0):.0f}%")
-        print(f"   Recommendation: {exec_summary.get('recommendation', 'N/A')[:80]}...")
+        print(f"   Outlook:   {exec_summary.get('overall_outlook', 'N/A')}")
+        print(f"   Confidence:{exec_summary.get('confidence_level', 0):.0f}%")
     print(f"{'='*60}\n")
 
 async def main():
     args = parse_args()
-    
+
+    # Ensure outputs dir exists
+    Path("outputs").mkdir(exist_ok=True)
+
     start = datetime.now()
-    
+
     try:
         if args.type == "pre":
             await run_pre(args.date, args.event, args.articles, args.symbols)
@@ -117,11 +96,11 @@ async def main():
         elif args.type == "both":
             await run_pre(args.date, args.event, args.articles, args.symbols)
             await run_post(args.date, args.event, args.articles, args.symbols)
-        
+
         elapsed = (datetime.now() - start).seconds
         print(f"⏱ Total time: {elapsed}s")
         sys.exit(0)
-        
+
     except Exception as e:
         print(f"\n❌ Analysis failed: {str(e)}")
         import traceback

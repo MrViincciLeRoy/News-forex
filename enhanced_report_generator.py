@@ -3,6 +3,8 @@ Enhanced Report Generator
 Generate comprehensive PDF reports from analysis data
 """
 
+import os
+from pathlib import Path
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -10,7 +12,6 @@ from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from datetime import datetime
-from pathlib import Path
 import json
 from typing import Dict
 import matplotlib.pyplot as plt
@@ -59,7 +60,9 @@ class EnhancedReportGenerator:
     def generate_pre_event_pdf(self, results: Dict) -> str:
         """Generate pre-event PDF report"""
         
-        output_file = f"/mnt/user-data/outputs/pre_event_{results['event_name'].replace(' ', '_')}_{results['event_date']}.pdf"
+        output_dir = Path(os.getenv('ANALYSIS_OUTPUT_DIR', str(Path.cwd() / 'outputs')))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_file = str(output_dir / f"pre_event_{results['event_name'].replace(' ', '_')}_{results['event_date']}.pdf")
         
         doc = SimpleDocTemplate(
             output_file,
@@ -116,7 +119,9 @@ class EnhancedReportGenerator:
     def generate_post_event_pdf(self, results: Dict) -> str:
         """Generate post-event PDF report"""
         
-        output_file = f"/mnt/user-data/outputs/post_event_{results['event_name'].replace(' ', '_')}_{results['event_date']}.pdf"
+        output_dir = Path(os.getenv('ANALYSIS_OUTPUT_DIR', str(Path.cwd() / 'outputs')))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_file = str(output_dir / f"post_event_{results['event_name'].replace(' ', '_')}_{results['event_date']}.pdf")
         
         doc = SimpleDocTemplate(
             output_file,

@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import pandas as pd
 import numpy as np
+import os
 
 class PreEventAnalyzer:
     
@@ -20,8 +21,9 @@ class PreEventAnalyzer:
         self.max_articles = max_articles
         self.analysis_id = f"pre_{event_date}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
         
-        self.output_dir = Path(f"/home/claude/pre_event_{self.analysis_id}")
-        self.output_dir.mkdir(exist_ok=True)
+        base_dir = Path(os.getenv("ANALYSIS_OUTPUT_DIR", str(Path.cwd() / "outputs")))
+        self.output_dir = base_dir / f"pre_event_{self.analysis_id}"
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         
         # Top 10 institutional players
         self.top_institutions = [
