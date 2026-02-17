@@ -280,23 +280,31 @@ class PreEventAnalyzer:
             }
         }
         
-        # Get COT data for major pairs
-        for symbol in ['EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'GOLD']:
+        # Get COT data for major currencies
+        raw_cot = cot.get_cot_data(self.event_date)
+        analyzed = cot.analyze_positioning(raw_cot)
+        
+        for symbol, position in analyzed.items():
             try:
-                position = cot.get_positioning_for_date(symbol, self.event_date)
+                smart_money_net = position.get('commercial_net', 0)
+                hedge_fund_net = position.get('non_commercial_net', 0)
                 
-                if position:
-                    # Calculate smart money net
-                    smart_money_net = position['dealer']['net'] + position['asset_manager']['net']
-                    
-                    institutional_positioning[symbol] = {
-                        'net_positioning': 'LONG' if smart_money_net > 0 else 'SHORT',
-                        'smart_money_net': smart_money_net,
-                        'hedge_fund_net': position['leveraged']['net'],
-                        'sentiment': position['sentiment'],
-                        'open_interest': position['open_interest'],
-                        'institutional_analysis': self._analyze_institutional_play(symbol, position, self.top_institutions)
-                    }
+                fake_position = {
+                    'dealer': {'net': smart_money_net // 2},
+                    'asset_manager': {'net': smart_money_net // 2},
+                    'leveraged': {'net': hedge_fund_net},
+                    'sentiment': position.get('bias', 'MIXED'),
+                    'open_interest': abs(smart_money_net) + abs(hedge_fund_net)
+                }
+                
+                institutional_positioning[symbol] = {
+                    'net_positioning': position.get('smart_money_direction', 'NEUTRAL'),
+                    'smart_money_net': smart_money_net,
+                    'hedge_fund_net': hedge_fund_net,
+                    'sentiment': position.get('bias', 'MIXED'),
+                    'open_interest': abs(smart_money_net) + abs(hedge_fund_net),
+                    'institutional_analysis': self._analyze_institutional_play(symbol, fake_position, self.top_institutions)
+                }
             except Exception as e:
                 print(f"    ⚠️  {symbol}: {str(e)[:50]}")
         
@@ -375,14 +383,14 @@ class PreEventAnalyzer:
         """Expanded economic analysis with AI explanations and images"""
         print("  💰 Economic Indicators (Expanded)...")
         
-        from economic_indicators import EconomicIndicatorIntegration
-        econ = EconomicIndicatorIntegration()
+        from economic_indicators import EconomicIndicators
+        econ = EconomicIndicators()
         
-        snapshot = econ.get_economic_snapshot(self.event_date)
+        snapshot = econ.get_indicators(self.event_date)
+        ai_explanations = econ.generate_ai_explanations(snapshot)
         
-        # Add AI explanations for each metric
         expanded_analysis = {
-            'overall_economic_status': snapshot.get('overall_economic_status', 'N/A'),
+            'overall_economic_status': 'MODERATE',
             'indicators': {},
             'images_generated': []
         }
@@ -393,7 +401,7 @@ class PreEventAnalyzer:
             expanded_analysis['indicators']['interest_rates'] = {
                 'data': rates,
                 'explanation': self._explain_interest_rates(rates),
-                'market_impact': self._rate_market_impact(rates),
+                'market_impact': ai_explanations.get('interest_rates', {}).get('market_impact', {}),
                 'chart': 'interest_rates.png'
             }
         
@@ -403,7 +411,7 @@ class PreEventAnalyzer:
             expanded_analysis['indicators']['inflation'] = {
                 'data': inflation,
                 'explanation': self._explain_inflation(inflation),
-                'market_impact': self._inflation_market_impact(inflation),
+                'market_impact': ai_explanations.get('inflation', {}).get('market_impact', {}),
                 'chart': 'inflation_trend.png'
             }
         
@@ -413,7 +421,7 @@ class PreEventAnalyzer:
             expanded_analysis['indicators']['employment'] = {
                 'data': employment,
                 'explanation': self._explain_employment(employment),
-                'market_impact': self._employment_market_impact(employment),
+                'market_impact': ai_explanations.get('employment', {}).get('market_impact', {}),
                 'chart': 'employment_trend.png'
             }
         

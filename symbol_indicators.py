@@ -13,16 +13,25 @@ class SymbolIndicatorCalculator:
         self.cache = {}
     
     def get_historical_data(self, symbol: str, period: str = '3mo') -> Optional[pd.DataFrame]:
-        """Get historical price data"""
+        """Get historical price data with retry and fallback"""
+        import time
         
-        # Try to use yfinance
-        try:
-            import yfinance as yf
-            ticker = yf.Ticker(symbol)
-            data = ticker.history(period=period)
-            return data
-        except:
-            pass
+        # Try yfinance with retry
+        for attempt in range(3):
+            try:
+                import yfinance as yf
+                ticker = yf.Ticker(symbol)
+                data = ticker.history(period=period)
+                if data is not None and not data.empty:
+                    return data
+                # Empty result - use mock
+                break
+            except Exception as e:
+                err = str(e).lower()
+                if 'rate' in err or '429' in err or 'timeout' in err:
+                    time.sleep(2 ** attempt)  # exponential backoff: 1s, 2s, 4s
+                    continue
+                break  # non-retryable error
         
         # Fallback to mock data
         return self._generate_mock_data(symbol, period)
