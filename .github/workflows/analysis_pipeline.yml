@@ -1,0 +1,133 @@
+name: Financial Analysis Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      event_date:
+        description: "Event date (YYYY-MM-DD)"
+        required: true
+        default: "2024-11-01"
+      event_name:
+        description: "Event name"
+        required: true
+        default: "Non-Farm Payrolls"
+      report_type:
+        description: "Report type"
+        required: true
+        default: "pre"
+        type: choice
+        options:
+          - pre
+          - post
+          - both
+      max_articles:
+        description: "Max news articles to fetch"
+        required: false
+        default: "30"
+
+  schedule:
+    # Run pre-event analysis every Friday at 6AM UTC (before NFP, CPI etc)
+    - cron: "0 6 * * 5"
+
+  push:
+    branches: [main]
+    paths:
+      - "enhanced_pre_event_analyzer.py"
+      - "enhanced_post_event_analyzer.py"
+      - "enhanced_report_generator.py"
+      - "main.py"
+
+jobs:
+  run-analysis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      SERP_API_KEY: ${{ secrets.SERP_API_KEY_1 }}
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Set event defaults for scheduled runs
+        if: github.event_name == 'schedule'
+        run: |
+          echo "EVENT_DATE=$(date +%Y-%m-%d)" >> $GITHUB_ENV
+          echo "EVENT_NAME=Scheduled Weekly Analysis" >> $GITHUB_ENV
+          echo "REPORT_TYPE=pre" >> $GITHUB_ENV
+          echo "MAX_ARTICLES=30" >> $GITHUB_ENV
+
+      - name: Set event from workflow_dispatch inputs
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "EVENT_DATE=${{ github.event.inputs.event_date }}" >> $GITHUB_ENV
+          echo "EVENT_NAME=${{ github.event.inputs.event_name }}" >> $GITHUB_ENV
+          echo "REPORT_TYPE=${{ github.event.inputs.report_type }}" >> $GITHUB_ENV
+          echo "MAX_ARTICLES=${{ github.event.inputs.max_articles }}" >> $GITHUB_ENV
+
+      - name: Set event from push
+        if: github.event_name == 'push'
+        run: |
+          echo "EVENT_DATE=$(date +%Y-%m-%d)" >> $GITHUB_ENV
+          echo "EVENT_NAME=Pipeline Test Run" >> $GITHUB_ENV
+          echo "REPORT_TYPE=pre" >> $GITHUB_ENV
+          echo "MAX_ARTICLES=10" >> $GITHUB_ENV
+
+      - name: Run Pre-Event Analysis
+        if: env.REPORT_TYPE == 'pre' || env.REPORT_TYPE == 'both'
+        run: |
+          python run_analysis.py \
+            --date "$EVENT_DATE" \
+            --event "$EVENT_NAME" \
+            --type pre \
+            --articles "$MAX_ARTICLES"
+
+      - name: Run Post-Event Analysis
+        if: env.REPORT_TYPE == 'post' || env.REPORT_TYPE == 'both'
+        run: |
+          python run_analysis.py \
+            --date "$EVENT_DATE" \
+            --event "$EVENT_NAME" \
+            --type post \
+            --articles "$MAX_ARTICLES"
+
+      - name: Upload PDF Reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: analysis-reports-${{ env.EVENT_DATE }}
+          path: |
+            outputs/*.pdf
+            outputs/**/*.json
+          retention-days: 30
+
+      - name: Upload Section JSONs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: section-data-${{ env.EVENT_DATE }}
+          path: outputs/**/*_section.json
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Analysis Complete" >> $GITHUB_STEP_SUMMARY
+          echo "- **Event:** $EVENT_NAME" >> $GITHUB_STEP_SUMMARY
+          echo "- **Date:** $EVENT_DATE" >> $GITHUB_STEP_SUMMARY
+          echo "- **Type:** $REPORT_TYPE" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Generated Files" >> $GITHUB_STEP_SUMMARY
+          ls outputs/*.pdf 2>/dev/null | while read f; do echo "- 📄 $(basename $f)"; done >> $GITHUB_STEP_SUMMARY || echo "- No PDFs generated" >> $GITHUB_STEP_SUMMARY
