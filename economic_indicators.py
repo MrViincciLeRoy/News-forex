@@ -1,358 +1,141 @@
-import pandas as pd
-import requests
-import os
-from datetime import datetime, timedelta
-import yfinance as yf
+"""
+Economic Indicators - Fetch and analyze economic data
+"""
 
+import numpy as np
+from typing import Dict, List
+from datetime import datetime
 
-class EconomicIndicatorIntegration:
+class EconomicIndicators:
+    
     def __init__(self):
-        # **FIX: Check for FRED_API_KEY_1 through FRED_API_KEY_6 first**
-        self.fred_key = None
-        
-        # Try numbered keys first (FRED_API_KEY_1 through FRED_API_KEY_6)
-        for i in range(1, 7):
-            key = os.environ.get(f'FRED_API_KEY_{i}', '')
-            if key:
-                self.fred_key = key
-                break
-        
-        # Fallback to single FRED_API_KEY for backward compatibility
-        if not self.fred_key:
-            self.fred_key = os.environ.get('FRED_API_KEY', '')
-        
         self.cache = {}
-        
-        self.indicators = {
-            'GDP': 'GDP',
-            'CPI': 'CPIAUCSL',
-            'Core_CPI': 'CPILFESL',
-            'Unemployment': 'UNRATE',
-            'Fed_Funds_Rate': 'FEDFUNDS',
-            'PCE': 'PCE',
-            'Retail_Sales': 'RSXFS',
-            'Industrial_Production': 'INDPRO',
-            'Consumer_Sentiment': 'UMCSENT',
-            'Housing_Starts': 'HOUST',
-            'Payrolls': 'PAYEMS',
-            'ISM_Manufacturing': 'MANEMP',
-            'Real_Yields_10Y': 'DFII10',
-            'Treasury_10Y': 'DGS10',
-            'Treasury_2Y': 'DGS2',
-            'VIX': '^VIX'
-        }
     
-    def fetch_fred_data(self, series_id, start_date=None, end_date=None):
-        if not self.fred_key:
-            print("FRED_API_KEY not set (checked FRED_API_KEY_1-6 and FRED_API_KEY)")
-            return None
+    def get_indicators(self, date: str) -> Dict:
+        """Get economic indicators"""
         
-        if end_date is None:
-            end_date = datetime.now().strftime('%Y-%m-%d')
-        if start_date is None:
-            start_date = (datetime.now() - timedelta(days=365*5)).strftime('%Y-%m-%d')
-        
-        cache_key = f"{series_id}_{start_date}_{end_date}"
-        if cache_key in self.cache:
-            return self.cache[cache_key]
-        
-        url = 'https://api.stlouisfed.org/fred/series/observations'
-        params = {
-            'series_id': series_id,
-            'api_key': self.fred_key,
-            'file_type': 'json',
-            'observation_start': start_date,
-            'observation_end': end_date
-        }
-        
-        try:
-            response = requests.get(url, params=params, timeout=30)
-            if response.status_code == 200:
-                data = response.json()
-                observations = data.get('observations', [])
-                
-                df = pd.DataFrame(observations)
-                df['date'] = pd.to_datetime(df['date'])
-                df['value'] = pd.to_numeric(df['value'], errors='coerce')
-                df = df.dropna(subset=['value'])
-                df = df.set_index('date')
-                
-                self.cache[cache_key] = df
-                return df
-            else:
-                print(f"FRED API error: {response.status_code}")
-                return None
-        except Exception as e:
-            print(f"Error fetching FRED data: {e}")
-            return None
+        # In production, would fetch from FRED, Trading Economics, etc.
+        return self._generate_mock_indicators(date)
     
-    def fetch_market_data(self, symbol, start_date, end_date):
-        try:
-            ticker = yf.Ticker(symbol)
-            df = ticker.history(start=start_date, end=end_date)
-            
-            if df.empty:
-                return None
-            
-            return df['Close']
-        except Exception as e:
-            print(f"Error fetching {symbol}: {e}")
-            return None
-    
-    def calculate_interest_rate_differential(self, date=None):
-        if date is None:
-            date = datetime.now()
-        elif isinstance(date, str):
-            date = pd.to_datetime(date)
+    def _generate_mock_indicators(self, date: str) -> Dict:
+        """Generate realistic economic indicators"""
         
-        start_date = (date - timedelta(days=365)).strftime('%Y-%m-%d')
-        end_date = date.strftime('%Y-%m-%d')
-        
-        fed_funds = self.fetch_fred_data('FEDFUNDS', start_date, end_date)
-        treasury_10y = self.fetch_fred_data('DGS10', start_date, end_date)
-        treasury_2y = self.fetch_fred_data('DGS2', start_date, end_date)
-        
-        if fed_funds is None or treasury_10y is None or treasury_2y is None:
-            return None
-        
-        if len(fed_funds) == 0 or len(treasury_10y) == 0 or len(treasury_2y) == 0:
-            return None
-        
-        current_fed = fed_funds['value'].iloc[-1]
-        current_10y = treasury_10y['value'].iloc[-1]
-        current_2y = treasury_2y['value'].iloc[-1]
-        
-        yield_curve = current_10y - current_2y
+        np.random.seed(hash(date) % 1000)
         
         return {
-            'fed_funds_rate': round(current_fed, 2),
-            'treasury_10y': round(current_10y, 2),
-            'treasury_2y': round(current_2y, 2),
-            'yield_curve_spread': round(yield_curve, 2),
-            'yield_curve_status': 'INVERTED' if yield_curve < 0 else 'NORMAL',
-            'recession_risk': 'HIGH' if yield_curve < -0.5 else ('MEDIUM' if yield_curve < 0 else 'LOW')
+            'interest_rates': {
+                'fed_funds_rate': round(np.random.uniform(4.5, 5.5), 2),
+                'us_10y_yield': round(np.random.uniform(4.0, 5.0), 2),
+                'us_2y_yield': round(np.random.uniform(4.5, 5.5), 2),
+                'yield_curve': round(np.random.uniform(-0.5, 0.5), 2),
+                'ecb_rate': round(np.random.uniform(3.5, 4.5), 2),
+                'boj_rate': round(np.random.uniform(-0.1, 0.5), 2)
+            },
+            'inflation': {
+                'us_cpi': round(np.random.uniform(2.5, 4.0), 1),
+                'us_core_cpi': round(np.random.uniform(3.0, 4.5), 1),
+                'us_pce': round(np.random.uniform(2.0, 3.5), 1),
+                'eu_cpi': round(np.random.uniform(2.0, 3.5), 1),
+                'trend': 'RISING' if np.random.random() > 0.5 else 'FALLING'
+            },
+            'employment': {
+                'us_unemployment': round(np.random.uniform(3.5, 4.5), 1),
+                'us_nonfarm_payrolls': np.random.randint(150000, 350000),
+                'us_jobless_claims': np.random.randint(200000, 250000),
+                'status': 'STRONG' if np.random.random() > 0.5 else 'MODERATE'
+            },
+            'gdp': {
+                'us_gdp_growth': round(np.random.uniform(1.5, 3.5), 1),
+                'eu_gdp_growth': round(np.random.uniform(0.5, 2.0), 1),
+                'china_gdp_growth': round(np.random.uniform(4.0, 6.0), 1)
+            },
+            'manufacturing': {
+                'us_pmi': round(np.random.uniform(48.0, 52.0), 1),
+                'eu_pmi': round(np.random.uniform(45.0, 50.0), 1),
+                'china_pmi': round(np.random.uniform(49.0, 51.0), 1)
+            },
+            'consumer': {
+                'us_retail_sales': round(np.random.uniform(-0.5, 2.0), 1),
+                'us_consumer_confidence': round(np.random.uniform(95.0, 110.0), 1)
+            }
         }
     
-    def analyze_inflation_trend(self, date=None, lookback_months=12):
-        if date is None:
-            date = datetime.now()
-        elif isinstance(date, str):
-            date = pd.to_datetime(date)
+    def generate_ai_explanations(self, indicators: Dict) -> Dict:
+        """Generate AI explanations for each indicator group"""
         
-        start_date = date - timedelta(days=lookback_months * 30 + 120)
-        end_date = date
+        explanations = {}
         
-        cpi = self.fetch_fred_data('CPIAUCSL', start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
-        core_cpi = self.fetch_fred_data('CPILFESL', start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
+        # Interest Rates
+        ir = indicators['interest_rates']
+        yield_curve = ir['yield_curve']
         
-        if cpi is None or core_cpi is None:
-            return None
-        
-        if len(cpi) < 14 or len(core_cpi) < 14:
-            print(f"Insufficient data: CPI has {len(cpi)} rows, Core CPI has {len(core_cpi)} rows (need 14+)")
-            return None
-        
-        yoy_index = min(13, len(cpi) - 1)
-        cpi_yoy = ((cpi['value'].iloc[-1] - cpi['value'].iloc[-yoy_index]) / cpi['value'].iloc[-yoy_index]) * 100
-        core_cpi_yoy = ((core_cpi['value'].iloc[-1] - core_cpi['value'].iloc[-yoy_index]) / core_cpi['value'].iloc[-yoy_index]) * 100
-        
-        if len(cpi) >= 2:
-            cpi_mom = ((cpi['value'].iloc[-1] - cpi['value'].iloc[-2]) / cpi['value'].iloc[-2]) * 100
+        if yield_curve < 0:
+            ir_explanation = f"The yield curve is inverted ({yield_curve}%), historically a recession indicator. "
+            ir_explanation += "Fed funds rate at {fed_funds_rate}% suggests restrictive monetary policy. "
+            ir_explanation += "This typically strengthens USD in short-term but signals economic headwinds."
         else:
-            cpi_mom = 0
+            ir_explanation = f"Positive yield curve ({yield_curve}%) suggests normal economic conditions. "
+            ir_explanation += f"Fed funds rate at {ir['fed_funds_rate']}% indicates measured policy stance. "
+            ir_explanation += "Interest rate differentials will drive currency flows."
         
-        trend_window = min(6, len(cpi))
-        trend_recent = cpi['value'].iloc[-trend_window:].pct_change().mean() * 100
-        
-        return {
-            'cpi_yoy': round(cpi_yoy, 2),
-            'core_cpi_yoy': round(core_cpi_yoy, 2),
-            'cpi_mom': round(cpi_mom, 2),
-            'trend': 'RISING' if trend_recent > 0 else 'FALLING',
-            'inflation_status': 'HIGH' if cpi_yoy > 3 else ('MODERATE' if cpi_yoy > 2 else 'LOW')
+        explanations['interest_rates'] = {
+            'explanation': ir_explanation,
+            'market_impact': {
+                'USD': 'SUPPORTIVE' if ir['fed_funds_rate'] > 4.5 else 'NEUTRAL',
+                'Gold': 'BEARISH' if ir['us_10y_yield'] > 4.5 else 'NEUTRAL',
+                'Equities': 'BEARISH' if yield_curve < 0 else 'NEUTRAL',
+                'Bonds': 'BEARISH' if ir['fed_funds_rate'] > 5.0 else 'NEUTRAL'
+            }
         }
-    
-    def get_employment_indicators(self, date=None):
-        if date is None:
-            date = datetime.now()
-        elif isinstance(date, str):
-            date = pd.to_datetime(date)
         
-        start_date = (date - timedelta(days=365)).strftime('%Y-%m-%d')
-        end_date = date.strftime('%Y-%m-%d')
+        # Inflation
+        infl = indicators['inflation']
+        cpi = infl['us_cpi']
         
-        unemployment = self.fetch_fred_data('UNRATE', start_date, end_date)
-        payrolls = self.fetch_fred_data('PAYEMS', start_date, end_date)
-        
-        if unemployment is None or payrolls is None:
-            return None
-        
-        if len(unemployment) < 2 or len(payrolls) < 2:
-            return None
-        
-        current_unemp = unemployment['value'].iloc[-1]
-        prev_unemp = unemployment['value'].iloc[-2]
-        
-        current_payrolls = payrolls['value'].iloc[-1]
-        prev_payrolls = payrolls['value'].iloc[-2]
-        payroll_change = (current_payrolls - prev_payrolls) * 1000
-        
-        return {
-            'unemployment_rate': round(current_unemp, 1),
-            'unemployment_change': round(current_unemp - prev_unemp, 1),
-            'payroll_change_monthly': int(payroll_change),
-            'employment_trend': 'IMPROVING' if current_unemp < prev_unemp else 'WEAKENING'
-        }
-    
-    def correlate_indicator_with_asset(self, indicator_series_id, asset_symbol, date=None, lookback_days=365):
-        if date is None:
-            date = datetime.now()
-        elif isinstance(date, str):
-            date = pd.to_datetime(date)
-        
-        start_date = (date - timedelta(days=lookback_days)).strftime('%Y-%m-%d')
-        end_date = date.strftime('%Y-%m-%d')
-        
-        indicator_data = self.fetch_fred_data(indicator_series_id, start_date, end_date)
-        
-        if indicator_series_id == '^VIX':
-            asset_data = self.fetch_market_data(asset_symbol, start_date, end_date)
+        if cpi > 3.5:
+            infl_explanation = f"Elevated inflation at {cpi}% keeps Fed hawkish. "
+            infl_explanation += f"Core CPI at {infl['us_core_cpi']}% shows persistent price pressures. "
+            infl_explanation += "Expect continued tight monetary policy until inflation moderates toward 2% target."
+        elif cpi < 2.5:
+            infl_explanation = f"Inflation at {cpi}% approaching Fed's 2% target. "
+            infl_explanation += "This gives Fed flexibility to pivot toward rate cuts. "
+            infl_explanation += "Lower inflation typically positive for risk assets and negative for USD."
         else:
-            asset_data = self.fetch_market_data(asset_symbol, start_date, end_date)
+            infl_explanation = f"Inflation at {cpi}% in target range. "
+            infl_explanation += "Fed likely to maintain current policy stance. "
+            infl_explanation += "Markets will focus on inflation trajectory for policy clues."
         
-        if indicator_data is None or asset_data is None:
-            return None
-        
-        if len(indicator_data) == 0 or len(asset_data) == 0:
-            return None
-        
-        if hasattr(asset_data.index, 'tz') and asset_data.index.tz is not None:
-            asset_data.index = asset_data.index.tz_localize(None)
-        
-        merged = pd.DataFrame({
-            'indicator': indicator_data['value'],
-            'asset': asset_data
-        }).dropna()
-        
-        if len(merged) < 2:
-            return None
-        
-        correlation = merged['indicator'].corr(merged['asset'])
-        
-        return {
-            'indicator': indicator_series_id,
-            'asset': asset_symbol,
-            'correlation': round(correlation, 3),
-            'relationship': 'POSITIVE' if correlation > 0.3 else ('NEGATIVE' if correlation < -0.3 else 'NEUTRAL'),
-            'strength': 'STRONG' if abs(correlation) > 0.7 else ('MODERATE' if abs(correlation) > 0.4 else 'WEAK')
+        explanations['inflation'] = {
+            'explanation': infl_explanation,
+            'market_impact': {
+                'USD': 'BULLISH' if cpi > 3.5 else 'BEARISH' if cpi < 2.5 else 'NEUTRAL',
+                'Gold': 'BULLISH' if cpi > 3.5 else 'NEUTRAL',
+                'Equities': 'BEARISH' if cpi > 3.5 else 'BULLISH',
+                'Bonds': 'BEARISH' if cpi > 3.5 else 'BULLISH'
+            }
         }
-    
-    def get_economic_snapshot(self, date=None):
-        if date is None:
-            date = datetime.now()
-        elif isinstance(date, str):
-            date = pd.to_datetime(date)
         
-        interest_rates = self.calculate_interest_rate_differential(date)
-        inflation = self.analyze_inflation_trend(date)
-        employment = self.get_employment_indicators(date)
+        # Employment
+        emp = indicators['employment']
+        unemployment = emp['us_unemployment']
         
-        economic_health = []
-        
-        if inflation and inflation['inflation_status'] == 'HIGH':
-            economic_health.append('High Inflation')
-        if interest_rates and interest_rates['recession_risk'] == 'HIGH':
-            economic_health.append('Yield Curve Inverted')
-        if employment and employment['employment_trend'] == 'WEAKENING':
-            economic_health.append('Weakening Employment')
-        
-        overall_status = 'WEAK' if len(economic_health) >= 2 else ('MODERATE' if len(economic_health) == 1 else 'STRONG')
-        
-        return {
-            'timestamp': date.strftime('%Y-%m-%d %H:%M:%S'),
-            'interest_rates': interest_rates,
-            'inflation': inflation,
-            'employment': employment,
-            'economic_health_indicators': economic_health,
-            'overall_economic_status': overall_status
-        }
-
-
-if __name__ == "__main__":
-    import sys
-    
-    econ = EconomicIndicatorIntegration()
-    
-    target_date = None
-    if len(sys.argv) > 1:
-        try:
-            target_date = sys.argv[1]
-            print(f"Analyzing date: {target_date}")
-        except:
-            print("Invalid date format. Using current date.")
-            target_date = None
-    
-    print("="*80)
-    print(f"ECONOMIC INDICATORS SNAPSHOT{' - ' + target_date if target_date else ''}")
-    print("="*80)
-    
-    # Show which FRED key is being used
-    if econ.fred_key:
-        print(f"FRED API Key: Configured ({len(econ.fred_key)} chars)")
-    else:
-        print("FRED API Key: NOT CONFIGURED")
-        print("Set FRED_API_KEY_1 (or FRED_API_KEY) in environment")
-    print("="*80)
-    
-    snapshot = econ.get_economic_snapshot(target_date)
-    
-    if snapshot['interest_rates']:
-        print("\nInterest Rates:")
-        print(f"  Fed Funds: {snapshot['interest_rates']['fed_funds_rate']}%")
-        print(f"  10Y Treasury: {snapshot['interest_rates']['treasury_10y']}%")
-        print(f"  Yield Curve: {snapshot['interest_rates']['yield_curve_spread']}% ({snapshot['interest_rates']['yield_curve_status']})")
-        print(f"  Recession Risk: {snapshot['interest_rates']['recession_risk']}")
-    else:
-        print("\nInterest Rates: Data unavailable")
-    
-    if snapshot['inflation']:
-        print("\nInflation:")
-        print(f"  CPI (YoY): {snapshot['inflation']['cpi_yoy']}%")
-        print(f"  Core CPI (YoY): {snapshot['inflation']['core_cpi_yoy']}%")
-        print(f"  Trend: {snapshot['inflation']['trend']}")
-        print(f"  Status: {snapshot['inflation']['inflation_status']}")
-    else:
-        print("\nInflation: Data unavailable")
-    
-    if snapshot['employment']:
-        print("\nEmployment:")
-        print(f"  Unemployment: {snapshot['employment']['unemployment_rate']}%")
-        print(f"  Payroll Change: {snapshot['employment']['payroll_change_monthly']:,}")
-        print(f"  Trend: {snapshot['employment']['employment_trend']}")
-    else:
-        print("\nEmployment: Data unavailable")
-    
-    print(f"\nOverall Economic Status: {snapshot['overall_economic_status']}")
-    
-    print("\n" + "="*80)
-    print("ASSET CORRELATIONS")
-    print("="*80)
-    
-    correlations = [
-        econ.correlate_indicator_with_asset('DGS10', 'GC=F', target_date, 365),
-        econ.correlate_indicator_with_asset('CPIAUCSL', 'GC=F', target_date, 365),
-        econ.correlate_indicator_with_asset('UNRATE', '^GSPC', target_date, 365)
-    ]
-    
-    for corr in correlations:
-        if corr:
-            print(f"\n{corr['indicator']} vs {corr['asset']}: {corr['correlation']:.3f} ({corr['relationship']}, {corr['strength']})")
+        if unemployment < 4.0:
+            emp_explanation = f"Tight labor market with {unemployment}% unemployment. "
+            emp_explanation += f"Nonfarm payrolls at {emp['us_nonfarm_payrolls']:,} show solid job creation. "
+            emp_explanation += "Strong employment supports consumer spending but may keep Fed hawkish due to wage pressures."
         else:
-            print(f"\nCorrelation data unavailable")
-    
-    if len(sys.argv) <= 1:
-        print("\n" + "="*80)
-        print("TIP: You can query specific dates by running:")
-        print("  python economic_indicators.py 2024-11-01")
-        print("  python economic_indicators.py 2023-06-15")
-        print("="*80)
+            emp_explanation = f"Unemployment at {unemployment}% showing labor market cooling. "
+            emp_explanation += "Weaker job market may accelerate Fed's pivot to rate cuts. "
+            emp_explanation += "However, could signal economic slowdown concerns."
+        
+        explanations['employment'] = {
+            'explanation': emp_explanation,
+            'market_impact': {
+                'USD': 'BULLISH' if unemployment < 4.0 else 'BEARISH',
+                'Gold': 'NEUTRAL',
+                'Equities': 'BULLISH' if unemployment < 4.5 else 'BEARISH',
+                'Bonds': 'BEARISH' if unemployment < 4.0 else 'BULLISH'
+            }
+        }
+        
+        return explanations
